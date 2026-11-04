@@ -39,10 +39,6 @@ describe('navReducer', () => {
       expect(navReducer(empty, action)).toBe(empty)
     }
   })
-
-  it('resets to the start of a new game', () => {
-    expect(navReducer(at(7), { type: 'reset', total: 4 })).toEqual(at(0, 4))
-  })
 })
 
 describe('clampPly', () => {

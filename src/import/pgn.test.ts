@@ -14,7 +14,7 @@ import {
   TWO_GAMES_SECOND_BROKEN,
   UNDERPROMOTION,
 } from './fixtures'
-import { parseClock, parsePgn, splitPgnGames } from './pgn'
+import { EMPTY_INPUT, parseClock, parsePgn, splitPgnGames, UNREADABLE } from './pgn'
 import type { ImportedGame } from './types'
 
 function single(text: string): ImportedGame {
@@ -133,6 +133,15 @@ describe('parsePgn', () => {
     }
   })
 
+  it('splits headerless games that follow a result marker', () => {
+    const result = parsePgn('[White "A"]\n\n1. e4 e5 1-0\n\n1. d4 d5 0-1\n1. c4 1/2-1/2\n\n1. Nf3 *')
+    if (!result.ok) throw new Error(result.error)
+    expect(result.skipped).toEqual([])
+    expect(result.games.map((g) => g.moves[0].san)).toEqual(['e4', 'd4', 'c4', 'Nf3'])
+    expect(result.games[0].headers.white).toBe('A')
+    expect(result.games[1].headers.white).toBeUndefined()
+  })
+
   it('keeps good games when one game in a multi-game paste is broken', () => {
     const result = parsePgn(TWO_GAMES_SECOND_BROKEN)
     if (!result.ok) throw new Error(result.error)
@@ -148,12 +157,18 @@ describe('parsePgn', () => {
     expect(illegal.ok).toBe(false)
     if (!illegal.ok) expect(illegal.error).toBe('Illegal move "Ke3"')
 
+    if (!illegal.ok) expect(illegal.detail).toContain('Ke3')
+
     const garbage = parsePgn('hello world')
     expect(garbage.ok).toBe(false)
+    if (!garbage.ok) {
+      expect(garbage.error).toBe(UNREADABLE)
+      expect(garbage.detail).toBeTruthy() // raw parser text kept for a details view
+    }
 
     for (const empty of ['', '   ', '\n\n']) {
       const result = parsePgn(empty)
-      expect(result).toEqual({ ok: false, error: 'No moves found' })
+      expect(result).toEqual({ ok: false, error: EMPTY_INPUT })
     }
 
     const headersOnly = parsePgn('[White "A"]\n[Black "B"]\n')
@@ -200,6 +215,17 @@ describe('splitPgnGames', () => {
     const games = splitPgnGames(text)
     expect(games).toHaveLength(2)
     expect(games[1].startsWith('[White "B"]')).toBe(true)
+  })
+
+  it('splits a headerless game that starts after a termination marker', () => {
+    expect(splitPgnGames('1. e4 e5 1-0\n\n1. d4 d5 *')).toEqual(['1. e4 e5 1-0', '1. d4 d5 *'])
+    expect(splitPgnGames('1. e4 e5 1/2-1/2\n1. d4 0-1')).toHaveLength(2)
+  })
+
+  it('does not split movetext that continues on the next line', () => {
+    expect(splitPgnGames('1. e4 e5\n2. Nf3 Nc6 *')).toHaveLength(1)
+    // A result-like token inside a comment does not end the game.
+    expect(splitPgnGames('1. e4 {won 1-0 later}\n2. Nf3 *')).toHaveLength(1)
   })
 
   it('returns nothing for blank input', () => {

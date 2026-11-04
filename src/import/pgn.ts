@@ -3,6 +3,9 @@ import { START_FEN } from '../chess/constants'
 import type { GameHeaders, GameResult, ImportedGame, ImportedMove, ImportResult } from './types'
 
 const TAG_LINE = /^\s*\[\w+\s+"/
+const SAN_LIKE = /^(?:[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=?[QRBN])?|[O0]-[O0](?:-[O0])?)[+#]?[!?]*$/
+const MOVETEXT_START =/^\s*\d+\s*\./
+const TERMINATION_AT_END = /(?:^|\s)(?:1-0|0-1|1\/2-1\/2|\*)\s*$/
 const CLOCK = /\[%clk\s+(\d+(?::\d+){1,2}(?:\.\d+)?)\s*\]/
 const COMMAND = /\[%[^\]]*\]/g
 const RESULTS: readonly GameResult[] = ['1-0', '0-1', '1/2-1/2', '*']
@@ -14,22 +17,33 @@ function normalise(text: string): string {
 
 /**
  * Split a paste or file that may hold several games into one string per game.
- * A new game starts at a tag line whose previous non-blank line is not a tag line.
+ * A new game starts at:
+ * - a tag line whose previous non-blank line is not a tag line, or
+ * - a movetext line starting with a move number (`1.`) whose previous non-blank
+ *   line ends with a game-termination marker (`1-0`, `0-1`, `1/2-1/2`, `*`),
+ *   so headerless games in a multi-game paste are split too.
  */
 export function splitPgnGames(text: string): string[] {
   const lines = normalise(text).split('\n')
   const games: string[][] = []
   let current: string[] = []
   let prevNonBlankIsTag: boolean | null = null
+  let prevNonBlankEndsGame = false
 
   for (const line of lines) {
     const isTag = TAG_LINE.test(line)
-    if (isTag && prevNonBlankIsTag === false && current.some((l) => l.trim() !== '')) {
+    const startsMovetext = MOVETEXT_START.test(line)
+    const startsNewGame =
+      (isTag && prevNonBlankIsTag === false) || (startsMovetext && prevNonBlankEndsGame)
+    if (startsNewGame && current.some((l) => l.trim() !== '')) {
       games.push(current)
       current = []
     }
     current.push(line)
-    if (line.trim() !== '') prevNonBlankIsTag = isTag
+    if (line.trim() !== '') {
+      prevNonBlankIsTag = isTag
+      prevNonBlankEndsGame = !isTag && TERMINATION_AT_END.test(line)
+    }
   }
   games.push(current)
 
@@ -99,15 +113,28 @@ function hash(text: string): string {
   return (h >>> 0).toString(16).padStart(8, '0')
 }
 
-function friendlyError(err: unknown): string {
+/** An error with a user-readable message plus the raw parser text for details. */
+class PgnError extends Error {
+  readonly detail?: string
+  constructor(message: string, detail?: string) {
+    super(message)
+    this.name = 'PgnError'
+    this.detail = detail
+  }
+}
+
+function toPgnError(err: unknown): PgnError {
   const message = err instanceof Error ? err.message : String(err)
   const illegal = /Invalid move in PGN:\s*(\S+)/.exec(message)
-  if (illegal) return `Illegal move "${illegal[1]}"`
-  const snippet = message.length > 80 ? `${message.slice(0, 77)}...` : message
-  return `Couldn't read this PGN (${snippet})`
+  // chess.js reports any unknown word as an invalid move; only call it an
+  // illegal move when the token actually looks like chess notation.
+  if (illegal && SAN_LIKE.test(illegal[1])) return new PgnError(`Illegal move "${illegal[1]}"`, message)
+  return new PgnError(UNREADABLE, message)
 }
 
 const NO_MOVES = 'No moves found'
+export const EMPTY_INPUT = 'Paste a PGN or upload a .pgn file first.'
+export const UNREADABLE = "Couldn't read this as a chess game. Check that it is in PGN format."
 
 /** Parse one game. Throws an Error with a user-readable message on failure. */
 function parseSingleGame(pgn: string): ImportedGame {
@@ -115,11 +142,11 @@ function parseSingleGame(pgn: string): ImportedGame {
   try {
     chess.loadPgn(pgn)
   } catch (err) {
-    throw new Error(friendlyError(err))
+    throw toPgnError(err)
   }
 
   const history = chess.history({ verbose: true })
-  if (history.length === 0) throw new Error(NO_MOVES)
+  if (history.length === 0) throw new PgnError(NO_MOVES)
 
   const comments = new Map<string, string>()
   for (const { fen, comment } of chess.getComments()) comments.set(fen, comment)
@@ -165,22 +192,23 @@ function parseSingleGame(pgn: string): ImportedGame {
  */
 export function parsePgn(text: string): ImportResult {
   const parts = splitPgnGames(text)
-  if (parts.length === 0) return { ok: false, error: NO_MOVES }
+  if (parts.length === 0) return { ok: false, error: EMPTY_INPUT }
 
   const games: ImportedGame[] = []
-  const skipped: { index: number; error: string }[] = []
+  const skipped: { index: number; error: string; detail?: string }[] = []
   parts.forEach((part, index) => {
     try {
       games.push(parseSingleGame(part))
     } catch (err) {
-      skipped.push({ index, error: err instanceof Error ? err.message : String(err) })
+      const e = err instanceof PgnError ? err : toPgnError(err)
+      skipped.push(e.detail === undefined ? { index, error: e.message } : { index, error: e.message, detail: e.detail })
     }
   })
 
   if (games.length === 0) {
-    const first = skipped[0]?.error ?? NO_MOVES
-    const error = parts.length > 1 ? `No games could be read. Game 1: ${first}` : first
-    return { ok: false, error }
+    const first = skipped[0]
+    const error = parts.length > 1 ? `No games could be read. Game 1: ${first.error}` : first.error
+    return first.detail === undefined ? { ok: false, error } : { ok: false, error, detail: first.detail }
   }
   return { ok: true, games, skipped }
 }

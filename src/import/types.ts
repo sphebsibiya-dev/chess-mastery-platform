@@ -54,5 +54,6 @@ export interface ImportedGame {
 }
 
 export type ImportResult =
-  | { ok: true; games: ImportedGame[]; skipped: { index: number; error: string }[] }
-  | { ok: false; error: string }
+  | { ok: true; games: ImportedGame[]; skipped: { index: number; error: string; detail?: string }[] }
+  /** `error` is user-readable; `detail` is the raw parser message, when there is one. */
+  | { ok: false; error: string; detail?: string }

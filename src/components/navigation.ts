@@ -10,7 +10,6 @@ export type NavAction =
   | { type: 'next' }
   | { type: 'last' }
   | { type: 'goto'; ply: number }
-  | { type: 'reset'; total: number }
 
 export function clampPly(ply: number, total: number): number {
   const max = Math.max(0, Math.floor(total))
@@ -36,8 +35,6 @@ export function navReducer(state: NavState, action: NavAction): NavState {
     case 'goto':
       ply = action.ply
       break
-    case 'reset':
-      return { ply: 0, total: Math.max(0, action.total) }
   }
   const clamped = clampPly(ply, state.total)
   return clamped === state.ply ? state : { ...state, ply: clamped }
