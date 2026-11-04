@@ -83,9 +83,12 @@ export default function GameViewer({ game }: GameViewerProps) {
         </div>
         <div className="viewer-status" aria-live="polite">
           {status}
-          {current?.comment ? <span className="move-comment"> — {current.comment}</span> : null}
         </div>
         <NavControls ply={ply} total={nav.total} onNavigate={navigate} />
+        {/* Below the controls so a long comment never moves the buttons. */}
+        <p className="move-comment" aria-live="polite">
+          {current?.comment ?? ''}
+        </p>
       </div>
       <div className="viewer-moves">
         {game.moves.length > 0 ? (
