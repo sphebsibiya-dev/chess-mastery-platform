@@ -9,4 +9,102 @@ body { margin: 0; min-height: 100dvh; }
 .app { max-width: 960px; margin: 0 auto; padding: 16px; }
 .app-header h1 { margin: 0 0 4px; font-size: 1.5rem; }
 .app-header p { margin: 0 0 16px; color: #9aa69f; }
-.board-wrap { width: min(100%, 560px); margin: 0 auto; }
+.muted { color: #9aa69f; }
+
+button, .button {
+  font: inherit;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid #3a4540;
+  border-radius: 8px;
+  background: #242b27;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+button:hover:not(:disabled):not([aria-disabled='true']), .button:hover { background: #2e3732; }
+button:disabled, button[aria-disabled='true'] { opacity: 0.4; cursor: default; }
+button:focus-visible, .button:focus-visible, textarea:focus-visible { outline: 2px solid #7fc48f; outline-offset: 2px; }
+button.primary { background: #3d7a4c; border-color: #3d7a4c; }
+button.primary:hover { background: #46895a; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+/* Keep keyboard focus visible on the label when the hidden file input is focused. */
+.import-actions label:has(+ input[type='file']:focus-visible) { outline: 2px solid #7fc48f; outline-offset: 2px; }
+
+/* Import */
+.import-panel .label { display: block; font-weight: 600; margin-bottom: 6px; }
+.import-panel textarea {
+  width: 100%;
+  font: 0.875rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #3a4540;
+  background: #1d2320;
+  color: inherit;
+  resize: vertical;
+}
+.import-panel textarea[aria-invalid='true'] { border-color: #d9534f; }
+.import-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.error { color: #ff8a80; margin: 8px 0 0; }
+.error-detail { margin-top: 4px; font-size: 0.8125rem; color: #9aa69f; }
+.error-detail summary { cursor: pointer; }
+.error-detail code { display: block; margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.notice { color: #f0c36d; margin: 8px 0 0; }
+.game-picker h2 { font-size: 1rem; margin: 20px 0 8px; }
+.game-picker ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.game-picker button { width: 100%; justify-content: flex-start; text-align: left; }
+
+/* Viewer: single column on phones */
+.viewer { display: flex; flex-direction: column; gap: 12px; }
+.viewer-board { min-width: 0; }
+.board-wrap { width: 100%; max-width: 560px; margin: 0 auto; }
+.players { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-weight: 600; overflow-wrap: anywhere; }
+.players .result { flex: none; color: #9aa69f; }
+/* One line, fixed height, so the nav buttons below never move. */
+.viewer-status { margin: 8px 0; height: 1.4em; line-height: 1.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.move-comment { color: #9aa69f; margin: 8px 0 0; overflow-wrap: anywhere; }
+.move-comment:empty { margin: 0; }
+.viewer-notice { margin: 0 0 12px; }
+.nav-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.nav-controls button { font-size: 1.1rem; }
+
+.move-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #2c3530;
+  border-radius: 8px;
+  background: #1d2320;
+  position: relative;
+}
+.move-row { display: grid; grid-template-columns: 3em 1fr 1fr; align-items: center; gap: 4px; }
+.move-number { color: #7c8781; text-align: right; padding-right: 4px; }
+.move {
+  min-height: 36px;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  justify-content: flex-start;
+}
+/* :hover variant out-specifies the generic button hover rule. */
+.move[aria-current='true'],
+.move[aria-current='true']:hover:not(:disabled) { background: #3d7a4c; }
+.move-empty { color: #5b6560; cursor: default; display: flex; align-items: center; }
+.game-meta { font-size: 0.875rem; margin: 8px 0 0; }
+.import-another { margin-top: 16px; }
+
+/* Tablet and up: board left, moves right */
+@media (min-width: 768px) {
+  .viewer { flex-direction: row; align-items: flex-start; }
+  .viewer-board { flex: 1 1 auto; max-width: 560px; }
+  .viewer-moves { flex: 0 0 260px; }
+  .move-list { max-height: 520px; }
+}
