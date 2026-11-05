@@ -17,9 +17,11 @@ describe('winPercent', () => {
     expect(winPercent(cp(-5000))).toBe(winPercent(cp(-1000)))
   })
 
-  it('maps mates and draws', () => {
-    expect(winPercent({ kind: 'mate', in: 3, winner: 'w' })).toBe(100)
-    expect(winPercent({ kind: 'mate', in: 0, winner: 'b' })).toBe(0)
+  it('treats mates as cp +/-1000 like Lichess, and draws as 50', () => {
+    expect(winPercent({ kind: 'mate', in: 3, winner: 'w' })).toBe(winPercent(cp(1000)))
+    expect(winPercent({ kind: 'mate', in: 3, winner: 'w' })).toBeCloseTo(97.54, 2)
+    expect(winPercent({ kind: 'mate', in: 0, winner: 'b' })).toBe(winPercent(cp(-1000)))
+    expect(winPercent({ kind: 'mate', in: 0, winner: 'b' })).toBeCloseTo(2.46, 2)
     expect(winPercent({ kind: 'draw' })).toBe(50)
   })
 })

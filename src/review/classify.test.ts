@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { START_FEN } from '../chess/constants'
 import type { Eval, GameAnalysis } from '../engine/types'
-import { TWO_GAMES } from '../import/fixtures'
+import { CASTLING, PROMOTION, TWO_GAMES } from '../import/fixtures'
 import { parsePgn } from '../import/pgn'
 import {
   classForLoss,
@@ -71,15 +71,27 @@ describe('classifyMove', () => {
       expect(r.cls).toBe('excellent')
     })
 
-    it('letting a mate slip to +2 is a blunder', () => {
+    it('letting a mate slip to +2 is a blunder (mate counts as +10.00)', () => {
       const r = classifyMove({ move: white, before: mate(3, 'w'), after: cp(200), bestMove: 'd2d4' })
-      expect(r.loss).toBeCloseTo(32.4, 1)
+      expect(r.wpBefore).toBeCloseTo(97.54, 2)
+      expect(r.wpAfter).toBeCloseTo(67.62, 2)
+      expect(r.loss).toBeCloseTo(29.9, 1)
       expect(r.cls).toBe('blunder')
+    })
+
+    it('a mate score turning into a big cp score costs little or nothing', () => {
+      const big = classifyMove({ move: white, before: mate(4, 'w'), after: cp(1500), bestMove: 'd2d4' })
+      expect(big.loss).toBe(0)
+      expect(big.cls).toBe('excellent')
+      const plus7 = classifyMove({ move: white, before: mate(4, 'w'), after: cp(700), bestMove: 'd2d4' })
+      expect(plus7.loss).toBeCloseTo(4.6, 1)
+      expect(plus7.cls).toBe('good')
     })
 
     it('walking into mate from -1 is a blunder', () => {
       const r = classifyMove({ move: white, before: cp(-100), after: mate(1, 'b'), bestMove: 'd2d4' })
-      expect(r.wpAfter).toBe(0)
+      expect(r.wpAfter).toBeCloseTo(2.46, 2)
+      expect(r.loss).toBeCloseTo(38.4, 1)
       expect(r.cls).toBe('blunder')
     })
 
@@ -87,6 +99,29 @@ describe('classifyMove', () => {
       const r = classifyMove({ move: black, before: mate(1, 'b'), after: mate(0, 'b'), bestMove: 'c7c5' })
       expect(r.loss).toBe(0)
     })
+  })
+})
+
+describe('best for castling and promotion', () => {
+  // lan comes from the real PGN parser, so a change in its format would fail here.
+  it('matches castling in UCI form (e1g1)', () => {
+    const parsed = parsePgn(CASTLING)
+    if (!parsed.ok) throw new Error(parsed.error)
+    const castle = parsed.games[0].moves.find((m) => m.san === 'O-O' && m.color === 'w')!
+    expect(castle.lan).toBe('e1g1')
+    const r = classifyMove({ move: castle, before: cp(30), after: cp(10), bestMove: 'e1g1' })
+    expect(r.cls).toBe('best')
+    expect(r.bestMoveSan).toBe('O-O')
+  })
+
+  it('matches a promotion in UCI form (e7e8q)', () => {
+    const move = { ply: 1, color: 'w' as const, lan: 'e7e8q', fenBefore: '7k/4P3/8/8/8/8/8/K7 w - - 0 1' }
+    const r = classifyMove({ move, before: cp(900), after: cp(850), bestMove: 'e7e8q' })
+    expect(r.cls).toBe('best')
+    expect(r.bestMoveSan).toBe('e8=Q+')
+    const parsed = parsePgn(PROMOTION)
+    if (!parsed.ok) throw new Error(parsed.error)
+    expect(parsed.games[0].moves[0].lan).toBe('a7a8q')
   })
 })
 
