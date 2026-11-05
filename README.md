@@ -11,7 +11,7 @@ The edge over chess.com and Lichess is the combination: game review, a coach you
 Building version 1, the game review loop.
 
 - Done: PGN paste and upload, and a board you can step through (#1).
-- Next: Stockfish analysis with move classification and accuracy (#2), chess.com and Lichess import (#3), board arrows and square highlights, then key moments and the evaluation graph (#4).
+- Next: Stockfish analysis with move classification and accuracy (#2), chess.com and Lichess import (#3), board arrows and square highlights (#16), then key moments and the evaluation graph (#4).
 
 See [the full plan](Chess%20Mastery%20Platform.md) for the feature list, build order and open questions. Work is tracked on the GitHub project board.
 
