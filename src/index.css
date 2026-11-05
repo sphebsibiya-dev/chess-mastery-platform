@@ -60,6 +60,72 @@ button.primary:hover { background: #46895a; }
 .game-picker ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 .game-picker button { width: 100%; justify-content: flex-start; text-align: left; }
 
+/* Import source tabs (segmented control) */
+.source-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 14px;
+  border: 1px solid #2c3530;
+  border-radius: 10px;
+  background: #1d2320;
+}
+.source-tabs [role='tab'] { border-color: transparent; background: transparent; padding: 8px 6px; }
+.source-tabs [role='tab'][aria-selected='true'],
+.source-tabs [role='tab'][aria-selected='true']:hover { background: #3d7a4c; border-color: #3d7a4c; font-weight: 600; }
+
+/* Online username import */
+.username-row { display: flex; gap: 8px; }
+.username-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #3a4540;
+  background: #1d2320;
+  color: inherit;
+}
+.username-row input[aria-invalid='true'] { border-color: #d9534f; }
+.username-row input:focus-visible { outline: 2px solid #7fc48f; outline-offset: 2px; }
+.username-row button { flex: none; }
+.online-results h2 { font-size: 1rem; margin: 18px 0 8px; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.chip { min-height: 44px; padding: 6px 12px; border-radius: 999px; }
+.chip[aria-pressed='true'],
+.chip[aria-pressed='true']:hover:not(:disabled) { background: #3d7a4c; border-color: #3d7a4c; }
+.game-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.game-row {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 10px;
+  text-align: left;
+  padding: 8px 10px;
+}
+.game-row-main { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.game-row-opponent { display: flex; align-items: center; gap: 6px; font-weight: 600; overflow-wrap: anywhere; }
+.game-row-meta { font-size: 0.8125rem; color: #9aa69f; }
+.outcome {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+.outcome-win { background: #3d7a4c; }
+.outcome-loss { background: #8a3a36; }
+.outcome-draw { background: #4a524e; }
+.side-dot { flex: none; width: 12px; height: 12px; border-radius: 3px; border: 1px solid #7c8781; }
+.side-w { background: #f0f0f0; }
+.side-b { background: #111; }
+.load-more { width: 100%; margin-top: 10px; }
+
 /* Viewer: single column on phones */
 .viewer { display: flex; flex-direction: column; gap: 12px; }
 .viewer-board { min-width: 0; }
@@ -73,6 +139,20 @@ button.primary:hover { background: #46895a; }
 .viewer-notice { margin: 0 0 12px; }
 .nav-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .nav-controls button { font-size: 1.1rem; }
+
+/* Board drawing toolbar: one row at 375px (Draw + 4 swatches + Clear). */
+.draw-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.draw-toolbar button { padding: 8px 10px; }
+.draw-toggle[aria-pressed='true'] { background: #3d7a4c; border-color: #7fc48f; }
+.draw-toggle[aria-pressed='true']:hover { background: #46895a; }
+.draw-swatches { display: flex; gap: 2px; }
+.draw-toolbar .draw-swatch { width: 40px; padding: 0; }
+.draw-swatch-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); }
+.draw-swatch[aria-pressed='true'] { border-color: #e8ece9; background: #2e3732; }
+.draw-swatch[aria-pressed='true'] .draw-swatch-dot { border-color: #fff; }
+.draw-clear { margin-left: auto; }
+/* Long-press on a square should not open the touch callout while drawing. */
+.board-wrap { -webkit-touch-callout: none; }
 
 .move-list {
   list-style: none;

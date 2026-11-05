@@ -3,9 +3,12 @@ import { Chessboard } from 'react-chessboard'
 import type { ImportedGame } from '../import/types'
 import AnalysisPanel from './AnalysisPanel'
 import { engineArrows } from './analysisView'
+import { mergeArrows, mergeSquareStyles } from './drawing'
+import DrawToolbar from './DrawToolbar'
 import MoveList from './MoveList'
 import NavControls from './NavControls'
 import { navReducer, type NavAction } from './navigation'
+import { useBoardDrawing } from './useBoardDrawing'
 import { useGameAnalysis } from './useGameAnalysis'
 
 interface GameViewerProps {
@@ -54,14 +57,15 @@ export default function GameViewer({ game }: GameViewerProps) {
   }, [])
 
   const { ply } = nav
-  // Engine best-move arrow; other arrow sources can be concatenated onto this array.
-  const arrows = useMemo(() => engineArrows(analysis.positions, ply), [analysis.positions, ply])
+  // Engine best-move arrow; the user's drawings are merged on top of it below.
+  const bestArrows = useMemo(() => engineArrows(analysis.positions, ply), [analysis.positions, ply])
   const classes = analysis.state.status === 'done' ? analysis.state.reviews.map((r) => r.cls) : undefined
   const current = ply > 0 ? game.moves[ply - 1] : undefined
   const position = current ? current.fenAfter : game.startFen
   const squareStyles: Record<string, CSSProperties> = current
     ? { [current.from]: HIGHLIGHT, [current.to]: HIGHLIGHT }
     : {}
+  const drawing = useBoardDrawing(position)
 
   const { headers } = game
   const status = current
@@ -83,8 +87,9 @@ export default function GameViewer({ game }: GameViewerProps) {
               id: 'viewer-board',
               position,
               allowDragging: false,
-              squareStyles,
-              arrows,
+              squareStyles: mergeSquareStyles(squareStyles, drawing.squareStyles),
+              arrows: mergeArrows(bestArrows, drawing.arrows),
+              ...drawing.boardOptions,
               animationDurationInMs: 150,
             }}
           />
@@ -93,6 +98,14 @@ export default function GameViewer({ game }: GameViewerProps) {
           {status}
         </div>
         <NavControls ply={ply} total={nav.total} onNavigate={navigate} />
+        <DrawToolbar
+          drawMode={drawing.drawMode}
+          onDrawModeChange={drawing.setDrawMode}
+          drawColor={drawing.drawColor}
+          onDrawColorChange={drawing.setDrawColor}
+          canClear={drawing.hasDrawings}
+          onClear={drawing.clear}
+        />
         <AnalysisPanel analysis={analysis} game={game} ply={ply} />
         {/* Below the controls so a long comment never moves the buttons. */}
         <p className="move-comment" aria-live="polite">

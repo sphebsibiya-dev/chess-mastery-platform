@@ -57,3 +57,81 @@ export type ImportResult =
   | { ok: true; games: ImportedGame[]; skipped: { index: number; error: string; detail?: string }[] }
   /** `error` is user-readable; `detail` is the raw parser message, when there is one. */
   | { ok: false; error: string; detail?: string }
+
+/** Speed category, normalised across sites (Lichess `ultraBullet` -> bullet, `correspondence` -> daily). */
+export type TimeClass = 'bullet' | 'blitz' | 'rapid' | 'classical' | 'daily'
+
+export type OnlineSourceId = 'chesscom' | 'lichess'
+
+/**
+ * One row in an online game list. Carries the raw PGN; it only becomes an
+ * `ImportedGame` (via `summaryToGame`) when the user picks it.
+ */
+export interface GameSummary {
+  /** 'chesscom:<uuid>' | 'lichess:<id>' */
+  id: string
+  source: OnlineSourceId
+  url: string
+  pgn: string
+  /** Which side the searched user played. */
+  userColor: 'w' | 'b'
+  /** 'Anonymous' / 'Stockfish level 3' when there is no account. */
+  opponent: string
+  userRating?: number
+  opponentRating?: number
+  /** From White's side, as in PGN. */
+  result: GameResult
+  /** From the user's side. */
+  outcome: 'win' | 'loss' | 'draw'
+  timeClass: TimeClass
+  /** Display form, e.g. '3+2', '1 day'. */
+  timeControl: string
+  /** When the game ended, ms since epoch. */
+  endedAt: number
+  rated: boolean
+}
+
+export interface FetchPage {
+  /** Newest first. */
+  games: GameSummary[]
+  /** Games left out (variants, aborted games, unreadable rows). */
+  skipped: number
+  hasMore: boolean
+  /** Opaque value to pass back to `fetchGames` for the next (older) page. */
+  cursor?: string
+}
+
+export interface FetchOptions {
+  signal?: AbortSignal
+  cursor?: string
+}
+
+/** A site that lists a user's games. Add a new source by implementing this. */
+export interface GameSource {
+  id: OnlineSourceId
+  label: string
+  /** A user-readable error, or null if the username looks valid. */
+  validateUsername(username: string): string | null
+  fetchGames(username: string, options?: FetchOptions): Promise<FetchPage>
+}
+
+export type SourceErrorKind = 'not-found' | 'rate-limited' | 'network' | 'bad-response'
+
+/** A fetch failure with a user-readable message. */
+export class SourceError extends Error {
+  readonly kind: SourceErrorKind
+  constructor(kind: SourceErrorKind, message: string) {
+    super(message)
+    this.name = 'SourceError'
+    this.kind = kind
+  }
+}
+
+/** The subset of `fetch` the sources use, so tests can pass a fake. */
+export type FetchLike = (
+  url: string,
+  init?: { signal?: AbortSignal; headers?: Record<string, string> },
+) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>
+
+/** The subset of `Storage` the archive cache uses. */
+export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>

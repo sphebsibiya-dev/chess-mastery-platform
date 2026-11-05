@@ -1,0 +1,175 @@
+import type { CSSProperties } from 'react'
+import type { Arrow } from 'react-chessboard'
+
+// Pure state for user-drawn board annotations (arrows and square highlights).
+// No React here: the hook in useBoardDrawing.ts wraps this reducer.
+
+export type DrawColor = 'green' | 'red' | 'blue' | 'yellow'
+
+export const DRAW_COLOR_ORDER: readonly DrawColor[] = ['green', 'red', 'blue', 'yellow']
+
+/** Arrow colour per drawing colour. react-chessboard applies its own arrow opacity on top. */
+export const DRAW_COLORS: Record<DrawColor, string> = {
+  green: 'rgb(21, 120, 27)',
+  red: 'rgb(214, 40, 40)',
+  blue: 'rgb(36, 104, 214)',
+  yellow: 'rgb(230, 180, 0)',
+}
+
+/**
+ * Live preview while right-dragging: same hue, more transparent, so it reads as "not placed yet".
+ * react-chessboard applies its own arrow opacity on top of this.
+ */
+export const PREVIEW_ARROW_COLORS: Record<DrawColor, string> = {
+  green: 'rgba(21, 120, 27, 0.45)',
+  red: 'rgba(214, 40, 40, 0.45)',
+  blue: 'rgba(36, 104, 214, 0.45)',
+  yellow: 'rgba(230, 180, 0, 0.45)',
+}
+
+/** Square highlight background per drawing colour (translucent so pieces stay readable). */
+export const HIGHLIGHT_COLORS: Record<DrawColor, string> = {
+  green: 'rgba(21, 160, 40, 0.55)',
+  red: 'rgba(235, 64, 52, 0.6)',
+  blue: 'rgba(56, 132, 255, 0.55)',
+  yellow: 'rgba(255, 200, 0, 0.55)',
+}
+
+export interface DrawnArrow {
+  from: string
+  to: string
+  color: DrawColor
+}
+
+export interface DrawingState {
+  /** The position (FEN) these drawings belong to. */
+  key: string
+  arrows: DrawnArrow[]
+  /** square -> colour */
+  highlights: Record<string, DrawColor>
+}
+
+export type DrawingAction =
+  | { type: 'toggleArrow'; key: string; from: string; to: string; color: DrawColor }
+  | { type: 'toggleHighlight'; key: string; square: string; color: DrawColor }
+  | { type: 'set'; key: string; arrows: DrawnArrow[]; highlights: Record<string, DrawColor> }
+  | { type: 'clear' }
+  /** The board moved to position `key`: drop all drawings (they are never kept per position). */
+  | { type: 'reset'; key: string }
+
+export interface Modifiers {
+  shiftKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  metaKey: boolean
+}
+
+/** Colour for code-driven drawings (coach mode, engine) when the caller doesn't pick one. */
+export const DEFAULT_DRAW_COLOR: DrawColor = 'green'
+
+// Action builders for the code API. They default to green, never to the user's swatch colour.
+export function arrowAction(key: string, from: string, to: string, color: DrawColor = DEFAULT_DRAW_COLOR): DrawingAction {
+  return { type: 'toggleArrow', key, from, to, color }
+}
+export function highlightAction(key: string, square: string, color: DrawColor = DEFAULT_DRAW_COLOR): DrawingAction {
+  return { type: 'toggleHighlight', key, square, color }
+}
+export function setAction(
+  key: string,
+  arrows: DrawnArrow[],
+  highlights: Record<string, DrawColor> = {},
+): DrawingAction {
+  return { type: 'set', key, arrows, highlights }
+}
+
+export function emptyDrawing(key: string): DrawingState {
+  return { key, arrows: [], highlights: {} }
+}
+
+/** Shift = red, Ctrl/Cmd = blue, Alt = yellow, none = green. Precedence: Shift > Ctrl/Meta > Alt. */
+export function colorFromModifiers(m: Modifiers): DrawColor {
+  if (m.shiftKey) return 'red'
+  if (m.ctrlKey || m.metaKey) return 'blue'
+  if (m.altKey) return 'yellow'
+  return 'green'
+}
+
+export function drawingReducer(s: DrawingState, a: DrawingAction): DrawingState {
+  switch (a.type) {
+    case 'toggleArrow': {
+      // Actions for a position the board is no longer on are stale (e.g. a late async caller): drop them.
+      if (a.key !== s.key || a.from === a.to) return s
+      const base = s
+      const i = base.arrows.findIndex((x) => x.from === a.from && x.to === a.to)
+      let arrows: DrawnArrow[]
+      if (i === -1) {
+        arrows = [...base.arrows, { from: a.from, to: a.to, color: a.color }]
+      } else if (base.arrows[i].color === a.color) {
+        arrows = base.arrows.filter((_, j) => j !== i)
+      } else {
+        arrows = base.arrows.map((x, j) => (j === i ? { ...x, color: a.color } : x))
+      }
+      return { ...base, arrows }
+    }
+    case 'toggleHighlight': {
+      if (a.key !== s.key) return s
+      const base = s
+      const highlights = { ...base.highlights }
+      if (highlights[a.square] === a.color) delete highlights[a.square]
+      else highlights[a.square] = a.color
+      return { ...base, highlights }
+    }
+    case 'set':
+      if (a.key !== s.key) return s
+      return { key: a.key, arrows: [...a.arrows], highlights: { ...a.highlights } }
+    case 'clear':
+      if (s.arrows.length === 0 && Object.keys(s.highlights).length === 0) return s
+      return emptyDrawing(s.key)
+    case 'reset':
+      if (s.key === a.key && s.arrows.length === 0 && Object.keys(s.highlights).length === 0) return s
+      return emptyDrawing(a.key)
+  }
+}
+
+/** What to show for the position `key`: nothing if the drawings belong to another position. */
+export function visibleDrawing(s: DrawingState, key: string): DrawingState {
+  return s.key === key ? s : emptyDrawing(key)
+}
+
+export function toArrows(s: DrawingState): Arrow[] {
+  return s.arrows.map((a) => ({ startSquare: a.from, endSquare: a.to, color: DRAW_COLORS[a.color] }))
+}
+
+export function toSquareStyles(s: DrawingState): Record<string, CSSProperties> {
+  const styles: Record<string, CSSProperties> = {}
+  for (const [square, color] of Object.entries(s.highlights)) {
+    styles[square] = { backgroundColor: HIGHLIGHT_COLORS[color] }
+  }
+  return styles
+}
+
+/** Combine arrow layers. Arrows with the same from-to are de-duplicated; the later layer wins. */
+export function mergeArrows(...layers: Arrow[][]): Arrow[] {
+  const byKey = new Map<string, Arrow>()
+  for (const layer of layers) {
+    for (const arrow of layer) {
+      const k = `${arrow.startSquare}-${arrow.endSquare}`
+      byKey.delete(k) // re-insert so a later layer also draws on top
+      byKey.set(k, arrow)
+    }
+  }
+  return [...byKey.values()]
+}
+
+/** Combine square-style layers. Styles for the same square are spread; later layers win per property. */
+export function mergeSquareStyles(
+  ...layers: Record<string, CSSProperties>[]
+): Record<string, CSSProperties> {
+  const out: Record<string, CSSProperties> = {}
+  for (const layer of layers) {
+    for (const [square, style] of Object.entries(layer)) {
+      out[square] = { ...out[square], ...style }
+    }
+  }
+  return out
+}
