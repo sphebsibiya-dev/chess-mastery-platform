@@ -3,11 +3,17 @@ import { Chess } from 'chess.js'
 import { accuracyFromLoss, gameAccuracy, moveAccuracy, volatilityWeights } from './accuracy'
 
 describe('moveAccuracy', () => {
-  it('follows the Lichess curve', () => {
+  it('follows the Lichess curve, including the +1 uncertainty bonus', () => {
     expect(moveAccuracy(60, 60)).toBe(100)
     expect(accuracyFromLoss(0)).toBe(100)
-    expect(accuracyFromLoss(10)).toBeCloseTo(63.6, 1)
-    expect(accuracyFromLoss(50)).toBeCloseTo(8.5, 1)
+    expect(accuracyFromLoss(10)).toBeCloseTo(64.6, 1)
+    expect(accuracyFromLoss(50)).toBeCloseTo(9.5, 1)
+  })
+
+  it('clamps to 100 for tiny losses', () => {
+    // raw + 1 is above 100 for a loss below ~0.22.
+    expect(accuracyFromLoss(0.1)).toBe(100)
+    expect(accuracyFromLoss(1)).toBeLessThan(100)
   })
 
   it('never goes below 0 and treats gains as no loss', () => {
@@ -26,6 +32,24 @@ describe('volatilityWeights', () => {
 
     const wild = Array.from({ length: 21 }, (_, i) => (i % 2 ? 0 : 100))
     expect(volatilityWeights(wild).every((w) => w === 12)).toBe(true)
+  })
+
+  it('uses moves / 10 (integer division), clamped to 2..8, as the window size', () => {
+    // 45 moves = 46 positions: window 4 (Math.round(46 / 10) would give 5).
+    const wp = Array.from({ length: 46 }, (_, i) => 50 + ((i * i * 7) % 20))
+    const weights = volatilityWeights(wp)
+    expect(weights).toHaveLength(45)
+    const std = (xs: number[]) => {
+      const m = xs.reduce((a, b) => a + b, 0) / xs.length
+      return Math.sqrt(xs.reduce((a, x) => a + (x - m) ** 2, 0) / xs.length)
+    }
+    const w = (xs: number[]) => Math.max(0.5, Math.min(12, std(xs)))
+    // The first size - 2 = 2 moves reuse the first window, then it slides.
+    expect(weights[0]).toBe(w(wp.slice(0, 4)))
+    expect(weights[1]).toBe(w(wp.slice(0, 4)))
+    expect(weights[2]).toBe(w(wp.slice(0, 4)))
+    expect(weights[3]).toBe(w(wp.slice(1, 5)))
+    expect(weights[44]).toBe(w(wp.slice(42, 46)))
   })
 
   it('handles very short games', () => {
