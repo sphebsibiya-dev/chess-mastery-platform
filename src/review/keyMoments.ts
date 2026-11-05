@@ -1,6 +1,6 @@
 import type { ImportedMove } from '../import/types'
 import { GOOD_MAX_LOSS, INACCURACY_MAX_LOSS, MISTAKE_MAX_LOSS } from './classify'
-import type { MoveReview } from './types'
+import type { MoveClass, MoveReview } from './types'
 
 export type KeyMomentKind = 'blunder' | 'missed-tactic' | 'turning-point'
 export type WinBand = 'white' | 'equal' | 'black'
@@ -41,6 +41,13 @@ export const MAX_MOMENTS = 8
 
 const KIND_ORDER: readonly KeyMomentKind[] = ['blunder', 'missed-tactic', 'turning-point']
 
+/**
+ * Classes that never make a key moment: forced moves had no choice, and book,
+ * brilliant, great and best moves are good by definition, so any loss on them
+ * is eval noise between search depths.
+ */
+const NEVER_KEY: ReadonlySet<MoveClass> = new Set(['forced', 'book', 'brilliant', 'great', 'best'])
+
 /** Which side is clearly better, from White's win%. */
 export function winBand(whiteWp: number): WinBand {
   if (whiteWp <= BLACK_BAND_MAX) return 'black'
@@ -56,7 +63,8 @@ function largestLosses<T extends { ply: number; loss: number }>(items: T[], n: n
 /**
  * Finds the moves worth jumping to: blunders, missed tactics (the opponent just
  * blundered and the mover did not punish it) and turning points (the win% band
- * changed). Forced and engine-best moves never count. Returns at most `MAX_MOMENTS`, sorted by ply.
+ * changed). Forced, book, brilliant, great and engine-best moves never count; a
+ * move classified `miss` is always a missed tactic. Returns at most `MAX_MOMENTS`, sorted by ply.
  *
  * @param whiteWp White's win% for every position, `moves.length + 1` entries.
  */
@@ -75,16 +83,16 @@ export function findKeyMoments(
   const candidates: KeyMoment[] = []
   moves.forEach((move, i) => {
     const review = reviews[i]
-    // Forced moves had no choice; engine-best moves are labelled "best" in the
-    // move list, so any loss on them is eval noise between search depths.
-    if (review.cls === 'forced' || review.cls === 'best') return
+    if (NEVER_KEY.has(review.cls)) return
     const kinds = new Set<KeyMomentKind>()
 
     if (review.loss >= BLUNDER_MIN_LOSS) kinds.add('blunder')
 
     const prevMove = moves[i - 1]
     const prevReview = reviews[i - 1]
-    if (
+    if (review.cls === 'miss') {
+      kinds.add('missed-tactic')
+    } else if (
       prevMove &&
       prevReview &&
       prevMove.color !== move.color &&

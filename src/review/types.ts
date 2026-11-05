@@ -1,4 +1,15 @@
-export type MoveClass = 'best' | 'excellent' | 'good' | 'inaccuracy' | 'mistake' | 'blunder' | 'forced'
+export type MoveClass =
+  | 'brilliant'
+  | 'great'
+  | 'best'
+  | 'excellent'
+  | 'good'
+  | 'book'
+  | 'inaccuracy'
+  | 'mistake'
+  | 'miss'
+  | 'blunder'
+  | 'forced'
 
 export interface MoveReview {
   ply: number
@@ -9,7 +20,7 @@ export interface MoveReview {
   wpAfter: number
   /** max(0, wpBefore - wpAfter). */
   loss: number
-  /** Lichess move accuracy, 0..100 (100 for forced moves). */
+  /** Lichess move accuracy, 0..100 (100 for forced and book moves). */
   accuracy: number
   /** Engine's best move from the position before this move, as SAN. */
   bestMoveSan?: string

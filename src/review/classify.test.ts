@@ -1,17 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { START_FEN } from '../chess/constants'
-import type { Eval, GameAnalysis } from '../engine/types'
-import { CASTLING, PROMOTION, TWO_GAMES } from '../import/fixtures'
+import type { AnalysisLine, Eval, GameAnalysis } from '../engine/types'
+import { CASTLING, PROMOTION, RUY_LOPEZ, TWO_GAMES } from '../import/fixtures'
 import { parsePgn } from '../import/pgn'
+import type { ImportedGame } from '../import/types'
 import {
+  ALREADY_WINNING_WP,
+  BRILLIANT_MIN_SACRIFICE,
+  BRILLIANT_MIN_WP_AFTER,
+  BRILLIANT_PV_PLIES,
   classForLoss,
   classifyGame,
   classifyMove,
   EXCELLENT_MAX_LOSS,
   GOOD_MAX_LOSS,
+  GREAT_MIN_GAP,
   INACCURACY_MAX_LOSS,
+  MISS_MIN_GIFT,
+  MISS_MIN_GIVEBACK,
   MISTAKE_MAX_LOSS,
+  sacrificedMaterial,
 } from './classify'
+import { positionKey, type Opening } from './openings/book'
+import { moverWinPercent } from './winProbability'
 
 const cp = (n: number): Eval => ({ kind: 'cp', cp: n })
 const mate = (n: number, winner: 'w' | 'b'): Eval => ({ kind: 'mate', in: n, winner })
@@ -168,5 +179,404 @@ describe('classifyGame', () => {
     if (!parsed.ok) throw new Error(parsed.error)
     const game = parsed.games[1]
     expect(() => classifyGame(game, { gameId: game.id, depth: 14, positions: [] })).toThrow()
+  })
+})
+
+// --- Brilliant / Great / Miss / Book -------------------------------------------
+
+const line = (move: string, e: Eval): AnalysisLine => ({ move, eval: e, pv: [move] })
+
+/** Philidor's legacy: 1.Qg8+! Rxg8 2.Nf7#. White gives up the queen (9) for a forced mate. */
+const PHILIDOR_FEN = 'r6k/6pp/7N/8/8/1Q6/6PP/6K1 w - - 0 1'
+const philidor = { ply: 1, color: 'w' as const, lan: 'b3g8', fenBefore: PHILIDOR_FEN }
+const PHILIDOR_PV = ['a8g8', 'h6f7']
+
+describe('new class thresholds', () => {
+  it('exports the tunable constants', () => {
+    expect({
+      ALREADY_WINNING_WP,
+      BRILLIANT_MIN_SACRIFICE,
+      BRILLIANT_MIN_WP_AFTER,
+      BRILLIANT_PV_PLIES,
+      GREAT_MIN_GAP,
+      MISS_MIN_GIFT,
+      MISS_MIN_GIVEBACK,
+    }).toEqual({
+      ALREADY_WINNING_WP: 95,
+      BRILLIANT_MIN_SACRIFICE: 2,
+      BRILLIANT_MIN_WP_AFTER: 50,
+      BRILLIANT_PV_PLIES: 4,
+      GREAT_MIN_GAP: 15,
+      MISS_MIN_GIFT: 20,
+      MISS_MIN_GIVEBACK: 0.5,
+    })
+  })
+})
+
+describe('sacrificedMaterial', () => {
+  it('counts the queen given up in the Philidor line', () => {
+    // Before: White +7. After Qg8+ Rxg8: White N+2P (5) vs R+2P (7) = -2.
+    expect(sacrificedMaterial(PHILIDOR_FEN, 'b3g8', 'w', PHILIDOR_PV)).toBe(9)
+  })
+
+  it('treats a capture that is taken straight back as a trade', () => {
+    const fen = 'r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1'
+    expect(sacrificedMaterial(fen, 'b5c6', 'w', ['d7c6'])).toBe(0)
+  })
+
+  it('takes the best balance in the line, so material won back by reply 3 cancels it', () => {
+    // White doubles on the d-file: Rxd7 Rxd7 Rxd7 wins a pawn overall (+4 before).
+    const fen = '3r2k1/3p1ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1'
+    // Looking only at reply 1, the rook is gone: 4 - 0 = 4.
+    expect(sacrificedMaterial(fen, 'd2d7', 'w', ['d8d7'])).toBe(4)
+    // With Rxd7 and a quiet reply 3, White is +5: no sacrifice.
+    expect(sacrificedMaterial(fen, 'd2d7', 'w', ['d8d7', 'd1d7', 'g8f8'])).toBe(-1)
+  })
+
+  it('looks at no more than BRILLIANT_PV_PLIES plies', () => {
+    // Ply 5 of the line would win the material back, but it is not looked at.
+    const fen = '3r2k1/3p1ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1'
+    expect(sacrificedMaterial(fen, 'd2d7', 'w', ['d8d7', 'g2g3', 'g8f8', 'd1d7', 'f8e8'])).toBe(4)
+  })
+
+  it('is undefined without an opponent reply or for an illegal move', () => {
+    expect(sacrificedMaterial(PHILIDOR_FEN, 'b3g8', 'w', [])).toBeUndefined()
+    expect(sacrificedMaterial(PHILIDOR_FEN, 'b3b8', 'w', PHILIDOR_PV)).toBeUndefined()
+  })
+
+  it('stops at an illegal PV move', () => {
+    expect(sacrificedMaterial(PHILIDOR_FEN, 'b3g8', 'w', ['a8g8', 'h6f7', 'zz', 'a1a2'])).toBe(9)
+    expect(sacrificedMaterial(PHILIDOR_FEN, 'b3g8', 'w', ['a1a2'])).toBeUndefined()
+  })
+})
+
+describe('brilliant', () => {
+  it('marks a sound queen sacrifice as brilliant', () => {
+    const r = classifyMove({ move: philidor, before: cp(150), after: cp(160), bestMove: 'b3g8', pvAfter: PHILIDOR_PV })
+    expect(r.cls).toBe('brilliant')
+    expect(r.loss).toBe(0)
+  })
+
+  it('also counts the engine best move with a noisy loss', () => {
+    const r = classifyMove({ move: philidor, before: cp(250), after: cp(150), bestMove: 'b3g8', pvAfter: PHILIDOR_PV })
+    expect(r.loss).toBeGreaterThan(EXCELLENT_MAX_LOSS)
+    expect(r.cls).toBe('brilliant')
+  })
+
+  it('needs a small loss when it is not the engine move', () => {
+    // wp(+180) - wp(+150) is about 2.4: just over EXCELLENT_MAX_LOSS.
+    const r = classifyMove({ move: philidor, before: cp(180), after: cp(150), bestMove: 'h6f7', pvAfter: PHILIDOR_PV })
+    expect(r.loss).toBeGreaterThanOrEqual(EXCELLENT_MAX_LOSS)
+    expect(r.cls).toBe('good')
+    // The same move with a loss under EXCELLENT_MAX_LOSS is brilliant even if it is not the engine move.
+    const close = classifyMove({ move: philidor, before: cp(160), after: cp(150), bestMove: 'h6f7', pvAfter: PHILIDOR_PV })
+    expect(close.cls).toBe('brilliant')
+  })
+
+  it('is not brilliant when already totally winning', () => {
+    const r = classifyMove({
+      move: philidor,
+      before: mate(2, 'w'),
+      after: mate(1, 'w'),
+      bestMove: 'b3g8',
+      pvAfter: PHILIDOR_PV,
+    })
+    expect(r.wpBefore).toBeGreaterThanOrEqual(ALREADY_WINNING_WP)
+    expect(r.cls).toBe('best')
+  })
+
+  it('is not brilliant when the mover is worse afterwards', () => {
+    const r = classifyMove({ move: philidor, before: cp(-80), after: cp(-100), bestMove: 'b3g8', pvAfter: PHILIDOR_PV })
+    expect(r.wpAfter).toBeLessThan(BRILLIANT_MIN_WP_AFTER)
+    expect(r.cls).toBe('best')
+  })
+
+  it('is not brilliant without an engine reply to look at', () => {
+    const r = classifyMove({ move: philidor, before: cp(150), after: cp(160), bestMove: 'b3g8', pvAfter: [] })
+    expect(r.cls).toBe('best')
+  })
+
+  it('is not brilliant for an equal trade', () => {
+    const move = {
+      ply: 7,
+      color: 'w' as const,
+      lan: 'b5c6',
+      fenBefore: 'r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1',
+    }
+    const r = classifyMove({ move, before: cp(30), after: cp(30), bestMove: 'b5c6', pvAfter: ['d7c6'] })
+    expect(r.cls).toBe('best')
+  })
+
+  it('wins over great when both apply', () => {
+    const r = classifyMove({
+      move: philidor,
+      before: cp(150),
+      after: cp(160),
+      bestMove: 'b3g8',
+      pvAfter: PHILIDOR_PV,
+      lines: [line('b3g8', cp(160)), line('h6f7', cp(-400))],
+    })
+    expect(r.cls).toBe('brilliant')
+  })
+})
+
+describe('great', () => {
+  // wp(+200) = 67.6, wp(-100) = 40.9: a gap of about 26.7.
+  const onlyGood = [line('e2e4', cp(200)), line('d2d4', cp(-100))]
+
+  it('marks the only good move as great', () => {
+    const r = classifyMove({ move: white, before: cp(200), after: cp(200), bestMove: 'e2e4', lines: onlyGood })
+    expect(r.cls).toBe('great')
+  })
+
+  it('needs the gap to the second line to be big enough', () => {
+    const lines = [line('e2e4', cp(60)), line('d2d4', cp(-50))]
+    const gap = moverWinPercent(lines[0].eval, 'w') - moverWinPercent(lines[1].eval, 'w')
+    expect(gap).toBeGreaterThan(9)
+    expect(gap).toBeLessThan(GREAT_MIN_GAP)
+    expect(classifyMove({ move: white, before: cp(60), after: cp(60), bestMove: 'e2e4', lines }).cls).toBe('best')
+  })
+
+  it('needs a second line', () => {
+    const lines = [line('e2e4', cp(200))]
+    expect(classifyMove({ move: white, before: cp(200), after: cp(200), bestMove: 'e2e4', lines }).cls).toBe('best')
+  })
+
+  it('needs the played move to be the top line', () => {
+    const lines = [line('d2d4', cp(200)), line('e2e4', cp(-100))]
+    const r = classifyMove({ move: white, before: cp(200), after: cp(200), bestMove: 'd2d4', lines })
+    expect(r.cls).toBe('excellent')
+  })
+
+  it('is not great when already totally winning', () => {
+    const lines = [line('e2e4', cp(900)), line('d2d4', cp(300))]
+    const r = classifyMove({ move: white, before: cp(900), after: cp(900), bestMove: 'e2e4', lines })
+    expect(r.wpBefore).toBeGreaterThanOrEqual(ALREADY_WINNING_WP)
+    expect(r.cls).toBe('best')
+  })
+
+  it("uses the mover's point of view for Black", () => {
+    const lines = [line('e7e5', cp(-200)), line('c7c5', cp(100))]
+    expect(classifyMove({ move: black, before: cp(-200), after: cp(-200), bestMove: 'e7e5', lines }).cls).toBe(
+      'great',
+    )
+  })
+
+  describe('recapture guard', () => {
+    // 1.e4 d5 2.exd5 Qxd5: the recapture is the only good move but is never Great.
+    const fenBefore = 'rnbqkbnr/ppp1pppp/8/3P4/8/8/PPPP1PPP/RNBQKBNR b KQkq - 0 2'
+    const qxd5 = { ply: 4, color: 'b' as const, lan: 'd8d5', fenBefore }
+    const lines = [line('d8d5', cp(0)), line('g8f6', cp(300))]
+    const input = { move: qxd5, before: cp(0), after: cp(0), bestMove: 'd8d5', lines }
+
+    it('does not mark a recapture on the same square as great', () => {
+      expect(classifyMove({ ...input, prevMove: { color: 'w', to: 'd5', san: 'exd5' } }).cls).toBe('best')
+    })
+
+    it('still marks the move great when the previous move was not a capture there', () => {
+      expect(classifyMove({ ...input, prevMove: { color: 'w', to: 'd5', san: 'd5' } }).cls).toBe('great')
+      expect(classifyMove(input).cls).toBe('great')
+    })
+  })
+})
+
+describe('miss', () => {
+  // Black to move. Black's win% before, at cp(-300), is 75.1.
+  const prevMove = { color: 'w' as const, to: 'e4', san: 'e4' }
+  const gift = { prevMove, prevReview: { loss: 30 } }
+
+  it('marks giving back at least half of the opponent gift as a miss', () => {
+    // After cp(-100): Black 59.1, so the loss is about 16 (>= 15, half of 30).
+    const r = classifyMove({ move: black, before: cp(-300), after: cp(-100), bestMove: 'c7c5', ...gift })
+    expect(r.loss).toBeGreaterThanOrEqual(15)
+    expect(r.cls).toBe('miss')
+  })
+
+  it('keeps the loss and accuracy of the class it replaces', () => {
+    const missed = classifyMove({ move: black, before: cp(-300), after: cp(-100), bestMove: 'c7c5', ...gift })
+    const plain = classifyMove({ move: black, before: cp(-300), after: cp(-100), bestMove: 'c7c5' })
+    expect(plain.cls).toBe('mistake')
+    expect(missed.accuracy).toBe(plain.accuracy)
+    expect(missed.loss).toBe(plain.loss)
+  })
+
+  it('needs at least half of the gift back', () => {
+    // After cp(-140): Black 62.6, a loss of about 12.5 (< 15).
+    const r = classifyMove({ move: black, before: cp(-300), after: cp(-140), bestMove: 'c7c5', ...gift })
+    expect(r.loss).toBeLessThan(15)
+    expect(r.cls).toBe('mistake')
+  })
+
+  it('needs at least an inaccuracy-sized loss', () => {
+    const r = classifyMove({
+      move: black,
+      before: cp(-300),
+      after: cp(-200),
+      bestMove: 'c7c5',
+      prevMove,
+      prevReview: { loss: 12 },
+    })
+    expect(r.loss).toBeGreaterThanOrEqual(0.5 * 12)
+    expect(r.loss).toBeLessThan(INACCURACY_MAX_LOSS)
+    expect(r.cls).toBe('inaccuracy')
+  })
+
+  it('needs a big enough gift', () => {
+    const r = classifyMove({
+      move: black,
+      before: cp(-300),
+      after: cp(-100),
+      bestMove: 'c7c5',
+      prevMove,
+      prevReview: { loss: 15 },
+    })
+    expect(r.cls).toBe('mistake')
+  })
+
+  it('needs the gift to come from the opponent', () => {
+    const r = classifyMove({
+      move: black,
+      before: cp(-300),
+      after: cp(-100),
+      bestMove: 'c7c5',
+      prevMove: { color: 'b', to: 'e5', san: 'e5' },
+      prevReview: { loss: 30 },
+    })
+    expect(r.cls).toBe('mistake')
+  })
+
+  it('is overridden by best (the loss is eval noise)', () => {
+    const r = classifyMove({ move: black, before: cp(-300), after: cp(-100), bestMove: 'e7e5', ...gift })
+    expect(r.cls).toBe('best')
+  })
+
+  it('also replaces a blunder', () => {
+    const r = classifyMove({ move: black, before: cp(-300), after: cp(100), bestMove: 'c7c5', ...gift })
+    expect(r.loss).toBeGreaterThanOrEqual(MISTAKE_MAX_LOSS)
+    expect(r.cls).toBe('miss')
+  })
+})
+
+describe('book', () => {
+  it('beats brilliant, great and best', () => {
+    const r = classifyMove({
+      move: philidor,
+      before: cp(150),
+      after: cp(160),
+      bestMove: 'b3g8',
+      pvAfter: PHILIDOR_PV,
+      inBook: true,
+    })
+    expect(r.cls).toBe('book')
+    expect(r.accuracy).toBe(100)
+  })
+
+  it('is beaten by forced', () => {
+    const move = { ply: 1, color: 'w' as const, lan: 'h1g2', fenBefore: '7k/8/8/8/8/8/6q1/7K w - - 0 1' }
+    expect(classifyMove({ move, before: cp(0), after: cp(0), inBook: true }).cls).toBe('forced')
+  })
+
+  it('beats miss and loss classes, and counts as 100 accuracy', () => {
+    const r = classifyMove({
+      move: black,
+      before: cp(-300),
+      after: cp(100),
+      bestMove: 'c7c5',
+      inBook: true,
+      prevMove: { color: 'w', to: 'e4', san: 'e4' },
+      prevReview: { loss: 30 },
+    })
+    expect(r.cls).toBe('book')
+    expect(r.accuracy).toBe(100)
+  })
+})
+
+describe('classifyGame with the new classes', () => {
+  function ruyLopez(): ImportedGame {
+    const parsed = parsePgn(RUY_LOPEZ)
+    if (!parsed.ok) throw new Error(parsed.error)
+    return parsed.games[0]
+  }
+
+  function flatAnalysis(game: ImportedGame, evals?: Eval[]): GameAnalysis {
+    return {
+      gameId: game.id,
+      depth: 14,
+      positions: [game.startFen, ...game.moves.map((m) => m.fenAfter)].map((fen, i) => ({
+        fen,
+        eval: evals?.[i] ?? cp(20),
+        pv: [],
+        depth: 14,
+        lines: [],
+      })),
+    }
+  }
+
+  const KINGS_KNIGHT: Opening = { eco: 'C40', name: "King's Knight Opening" }
+
+  /** A small hand-made book with the positions after the first `plies` moves; ply 3 is named. */
+  function bookFor(game: ImportedGame, plies: number): Map<string, Opening | null> {
+    return new Map(
+      game.moves.slice(0, plies).map((m, i) => [positionKey(m.fenAfter), i === 2 ? KINGS_KNIGHT : null] as const),
+    )
+  }
+
+  it('marks the leading book moves and returns the opening', () => {
+    const game = ruyLopez() // 10 plies
+    const { reviews, opening } = classifyGame(game, flatAnalysis(game), { book: bookFor(game, 4) })
+    expect(reviews.map((r) => r.cls)).toEqual([
+      'book',
+      'book',
+      'book',
+      'book',
+      ...Array(game.moves.length - 4).fill('excellent'),
+    ])
+    expect(reviews.slice(0, 4).map((r) => r.accuracy)).toEqual([100, 100, 100, 100])
+    expect(opening).toEqual(KINGS_KNIGHT)
+  })
+
+  it('has no book moves and no opening without a book', () => {
+    const game = ruyLopez()
+    const review = classifyGame(game, flatAnalysis(game))
+    expect(review.reviews.some((r) => r.cls === 'book')).toBe(false)
+    expect(review).not.toHaveProperty('opening')
+  })
+
+  it('stops the book at the first move that is not in it', () => {
+    const game = ruyLopez()
+    const book = bookFor(game, 4)
+    book.delete(positionKey(game.moves[1].fenAfter))
+    const { reviews } = classifyGame(game, flatAnalysis(game), { book })
+    expect(reviews.slice(0, 4).map((r) => r.cls)).toEqual(['book', 'excellent', 'excellent', 'excellent'])
+  })
+
+  it('finds a miss right after the opponent blunders', () => {
+    const full = ruyLopez()
+    const game = { ...full, moves: full.moves.slice(0, 3) }
+    // Ply 2 (Black) throws away about 29 win%; ply 3 (White) gives about 30 back.
+    const { reviews } = classifyGame(game, flatAnalysis(game, [cp(20), cp(20), cp(400), cp(20)]))
+    expect(reviews[1].cls).toBe('blunder')
+    expect(reviews[2].cls).toBe('miss')
+  })
+
+  it('passes the engine lines to the move rules', () => {
+    const full = ruyLopez()
+    const game = { ...full, moves: full.moves.slice(0, 1) }
+    const analysis = flatAnalysis(game, [cp(200), cp(200)])
+    analysis.positions[0].bestMove = 'e2e4'
+    analysis.positions[0].lines = [line('e2e4', cp(200)), line('d2d4', cp(-100))]
+    expect(classifyGame(game, analysis).reviews[0].cls).toBe('great')
+  })
+
+  it("passes the next position's PV to the brilliant rule", () => {
+    const game: ImportedGame = {
+      ...ruyLopez(),
+      startFen: PHILIDOR_FEN,
+      moves: [{ ...philidor, moveNumber: 1, san: 'Qg8+', from: 'b3', to: 'g8', fenAfter: 'r5Qk/6pp/7N/8/8/8/6PP/6K1 b - - 1 1' }],
+    }
+    const analysis = flatAnalysis(game, [cp(150), cp(160)])
+    analysis.positions[0].bestMove = 'b3g8'
+    analysis.positions[1].pv = PHILIDOR_PV
+    expect(classifyGame(game, analysis).reviews[0].cls).toBe('brilliant')
   })
 })
