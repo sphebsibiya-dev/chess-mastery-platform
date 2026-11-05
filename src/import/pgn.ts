@@ -1,6 +1,6 @@
 import { Chess } from 'chess.js'
 import { START_FEN } from '../chess/constants'
-import type { GameHeaders, GameResult, ImportedGame, ImportedMove, ImportResult } from './types'
+import type { GameHeaders, GameResult, ImportedGame, ImportedMove, ImportResult, ImportSource } from './types'
 
 const TAG_LINE = /^\s*\[\w+\s+"/
 const SAN_LIKE = /^(?:[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=?[QRBN])?|[O0]-[O0](?:-[O0])?)[+#]?[!?]*$/
@@ -136,8 +136,18 @@ const NO_MOVES = 'No moves found'
 export const EMPTY_INPUT = 'Paste a PGN or upload a .pgn file first.'
 export const UNREADABLE = "Couldn't read this as a chess game. Check that it is in PGN format."
 
-/** Parse one game. Throws an Error with a user-readable message on failure. */
-function parseSingleGame(pgn: string): ImportedGame {
+export interface ParseGameOptions {
+  /** Defaults to `'pgn'`. */
+  source?: ImportSource
+  /** Defaults to a hash of the PGN text. */
+  id?: string
+}
+
+/**
+ * Parse one game. Throws an Error with a user-readable message on failure.
+ * Online sources pass their own `source` and `id` so the game keeps a stable identity.
+ */
+export function parseGame(pgn: string, options: ParseGameOptions = {}): ImportedGame {
   const chess = new Chess()
   try {
     chess.loadPgn(pgn)
@@ -177,8 +187,8 @@ function parseSingleGame(pgn: string): ImportedGame {
 
   const headers = buildHeaders(chess.getHeaders())
   return {
-    id: hash(pgn),
-    source: 'pgn',
+    id: options.id ?? hash(pgn),
+    source: options.source ?? 'pgn',
     headers,
     startFen: moves[0]?.fenBefore ?? headers.raw.FEN ?? START_FEN,
     moves,
@@ -198,7 +208,7 @@ export function parsePgn(text: string): ImportResult {
   const skipped: { index: number; error: string; detail?: string }[] = []
   parts.forEach((part, index) => {
     try {
-      games.push(parseSingleGame(part))
+      games.push(parseGame(part))
     } catch (err) {
       const e = err instanceof PgnError ? err : toPgnError(err)
       skipped.push(e.detail === undefined ? { index, error: e.message } : { index, error: e.message, detail: e.detail })
