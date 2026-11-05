@@ -10,7 +10,6 @@ import {
   BRILLIANT_MIN_SACRIFICE,
   BRILLIANT_MAX_PV_PLIES,
   BRILLIANT_MIN_WP_AFTER,
-  BRILLIANT_PV_PLIES,
   classForLoss,
   classifyGame,
   classifyMove,
@@ -200,13 +199,20 @@ const PHILIDOR_PV = ['a8g8', 'h6f7']
 const BYRNE_FISCHER_FEN = 'r3r1k1/pp3pbp/1qp3p1/2B5/2BP2b1/Q1n2N2/P4PPP/3R1K1R b - - 3 17'
 const BYRNE_FISCHER_PV = 'a3c3 b6c5 d4c5 g7c3 c4e6 e8e6 g2g3 a8e8 f1g2 c3b4 d1d7 b4c5 d7b7 e6e2 h1f1 c5b6 f3g5'.split(' ')
 
+/** The same game one move earlier, before 16...Rfe8+, and the depth-14 line after it (17.Kf1 Be6 18.Qxc3 ...). Engine: -2.56. */
+const BYRNE_FISCHER_16_FEN = 'r4rk1/pp3pbp/1qp3p1/2B5/2BP2b1/Q1n2N2/P4PPP/3RK2R b K - 1 16'
+const BYRNE_FISCHER_16_PV = 'e1f1 g4e6 a3c3 b6c5 d4c5 g7c3 c4e6 e8e6 g2g3 e6e7 a2a3 b7b5 d1d3 c3f6 d3d6 e7e6 d6e6'.split(' ')
+
+/** Morphy's Opera Game (Paris 1858), before 13.Rxd7!, and the depth-14 line after it (13...Rxd7 14.Rd1 ...). Engine: +6.57. */
+const OPERA_FEN = '3rkb1r/p2nqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR3R w k - 3 13'
+const OPERA_PV = 'd8d7 h1d1 e7b4 g5f6 g7f6 b5d7 e8d8 b3f7 d8c7 d7f5 f8e7 c2c3 b4c5 d1d7 c7b8 f7b3 c5b6 b3b6 a7b6'.split(' ')
+
 describe('new class thresholds', () => {
   it('exports the tunable constants', () => {
     expect({
       ALREADY_WINNING_WP,
       BRILLIANT_MIN_SACRIFICE,
       BRILLIANT_MIN_WP_AFTER,
-      BRILLIANT_PV_PLIES,
       GREAT_MIN_GAP,
       MISS_MIN_GIFT,
       MISS_MIN_GIVEBACK,
@@ -214,7 +220,6 @@ describe('new class thresholds', () => {
       ALREADY_WINNING_WP: 95,
       BRILLIANT_MIN_SACRIFICE: 2,
       BRILLIANT_MIN_WP_AFTER: 50,
-      BRILLIANT_PV_PLIES: 4,
       GREAT_MIN_GAP: 15,
       MISS_MIN_GIFT: 20,
       MISS_MIN_GIVEBACK: 0.5,
@@ -263,7 +268,7 @@ describe('sacrificedMaterial', () => {
     expect(r.cls).toBe('best')
   })
 
-  it('follows a long exchange past BRILLIANT_PV_PLIES', () => {
+  it('follows a long exchange past 4 plies', () => {
     // Nxd5 Nxd5 Bxd5 Nxd5 Rxd5 Qxd5 Rxd5: six replies, all on d5. White ends a rook up (0 -> +5).
     const fen = '3q2k1/8/1n3n2/3p4/8/2N2B2/3R4/3R2K1 w - - 0 1'
     const pv = ['f6d5', 'f3d5', 'b6d5', 'd2d5', 'd8d5', 'd1d5']
@@ -288,8 +293,13 @@ describe('sacrificedMaterial', () => {
 
   it('does not let material regained later by other tactics cancel a sacrifice', () => {
     // 17...Be6: 18.Qxc3 takes the knight; Black gets material back only via Qxc5, dxc5 Bxc3.
-    const sacrifice = sacrificedMaterial(BYRNE_FISCHER_FEN, 'g4e6', 'b', BYRNE_FISCHER_PV)
-    expect(sacrifice).toBeGreaterThanOrEqual(BRILLIANT_MIN_SACRIFICE)
+    // Black +1 before; after 18.Qxc3 Black is -2: a 3-point sacrifice.
+    expect(sacrificedMaterial(BYRNE_FISCHER_FEN, 'g4e6', 'b', BYRNE_FISCHER_PV)).toBe(3)
+  })
+
+  it('only counts material the opponent takes with the first reply', () => {
+    // 16...Rfe8+: the reply 17.Kf1 takes nothing. Material only falls after Black's next move (17...Be6).
+    expect(sacrificedMaterial(BYRNE_FISCHER_16_FEN, 'f8e8', 'b', BYRNE_FISCHER_16_PV)).toBe(0)
   })
 
   it('exports the exchange cap', () => {
@@ -324,6 +334,20 @@ describe('brilliant', () => {
     const move = { ply: 34, color: 'b' as const, lan: 'g4e6', fenBefore: BYRNE_FISCHER_FEN }
     const lines = [line('g4e6', cp(-223)), line('g4f3', cp(0))]
     const input = { move, before: cp(-223), after: cp(-223), bestMove: 'g4e6', pvAfter: BYRNE_FISCHER_PV, lines }
+    expect(classifyMove(input).cls).toBe('brilliant')
+  })
+
+  it('does not mark Byrne-Fischer 16...Rfe8+ brilliant (nothing is taken on the first reply)', () => {
+    const move = { ply: 32, color: 'b' as const, lan: 'f8e8', fenBefore: BYRNE_FISCHER_16_FEN }
+    const input = { move, before: cp(-255), after: cp(-256), bestMove: 'f8e8', pvAfter: BYRNE_FISCHER_16_PV }
+    expect(classifyMove(input).cls).toBe('best')
+  })
+
+  it("marks the Opera Game's 13.Rxd7 brilliant (rook for knight, recaptured on d7)", () => {
+    // Stockfish depth 14: +6.57 before, +6.59 after; Rxd7 is the engine move. White's win% is about 91.8 (< 95).
+    const move = { ply: 25, color: 'w' as const, lan: 'd1d7', fenBefore: OPERA_FEN }
+    expect(sacrificedMaterial(OPERA_FEN, 'd1d7', 'w', OPERA_PV)).toBe(2)
+    const input = { move, before: cp(657), after: cp(659), bestMove: 'd1d7', pvAfter: OPERA_PV }
     expect(classifyMove(input).cls).toBe('brilliant')
   })
 

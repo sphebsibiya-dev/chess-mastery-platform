@@ -28,8 +28,6 @@ export const ALREADY_WINNING_WP = 95
 export const BRILLIANT_MIN_SACRIFICE = 2
 /** Brilliant: the mover's win% after the move must be at least this. */
 export const BRILLIANT_MIN_WP_AFTER = 50
-/** Brilliant: plies of the engine line after the move that are replayed (opponent replies 1 and 3). */
-export const BRILLIANT_PV_PLIES = 4
 /** Great: the best line must be at least this much win% better than the second-best line. */
 export const GREAT_MIN_GAP = 15
 /**
@@ -82,10 +80,11 @@ export const BRILLIANT_MAX_PV_PLIES = 10
  *   that square. The same-square capture chain is followed to its end (up to
  *   `BRILLIANT_MAX_PV_PLIES`) and the result is the material lost over the whole
  *   exchange, so an ordinary trade, or one that wins material, is not a sacrifice.
- * - **Otherwise** (material left en prise and taken, regained later, if at all,
- *   by other tactics): the largest deficit the mover is left with after the
- *   opponent's replies within `BRILLIANT_PV_PLIES` plies. Material won back later
- *   through checks or other captures does not cancel the sacrifice.
+ * - **Otherwise** (material left en prise): the deficit right after the
+ *   opponent's first reply, so the material must be taken immediately. Material
+ *   won back later through checks or other captures does not cancel the
+ *   sacrifice, and material lost only later in the line (after another move by
+ *   the mover) is not counted.
  *
  * Undefined if the opponent has no reply in the line (or the move is illegal).
  */
@@ -112,7 +111,7 @@ export function sacrificedMaterial(
   // Replay the line, keeping the mover's balance after every ply.
   const replies: Move[] = []
   const balances: number[] = []
-  for (const uci of pvAfter.slice(0, Math.max(BRILLIANT_PV_PLIES, BRILLIANT_MAX_PV_PLIES))) {
+  for (const uci of pvAfter.slice(0, BRILLIANT_MAX_PV_PLIES)) {
     const reply = play(uci)
     if (!reply) break
     replies.push(reply)
@@ -135,10 +134,8 @@ export function sacrificedMaterial(
   }
   if (exchangeEnd > 0) return before - balances[exchangeEnd - 1]
 
-  // Not an exchange: the worst balance after an opponent reply (plies 1, 3, ...).
-  let worst = Infinity
-  for (let i = 0; i < Math.min(replies.length, BRILLIANT_PV_PLIES); i += 2) worst = Math.min(worst, balances[i])
-  return before - worst
+  // Not an exchange: only material the opponent takes straight away counts.
+  return before - balances[0]
 }
 
 /** The move recaptures on the square where the opponent just captured. */
