@@ -2,6 +2,13 @@ import type { StorageLike } from './types'
 
 /** Every key this app writes to storage starts with this. */
 export const KEY_PREFIX = 'mogfish:'
+/** Cached chess.com months: `mogfish:chesscom:<user>:<YYYY-MM>`. Only these are ever evicted. */
+const EVICTABLE = /^mogfish:chesscom:[^:]+:(\d{4}-\d{2})$/
+/**
+ * Entries longer than this (UTF-16 code units, ~half a typical 5 MB quota) are
+ * kept in memory only, so one huge month can't push every other month out.
+ */
+export const MAX_PERSIST_CHARS = 2_500_000
 
 interface MemoryEntry {
   value: unknown
@@ -21,6 +28,8 @@ export interface ArchiveCacheOptions {
  *   and memory.
  * - other entries (archive list, current month) stay in memory with a TTL.
  * Storage failures (quota, privacy mode) never throw; data stays in memory.
+ * On a quota error, cached chess.com months are evicted oldest month first until
+ * the write fits; other `mogfish:` keys are never touched.
  */
 export class ArchiveCache {
   private readonly storage: StorageLike | null
@@ -61,10 +70,18 @@ export class ArchiveCache {
     } catch {
       return
     }
+    if (text.length > MAX_PERSIST_CHARS) return
     if (this.tryWrite(key, text)) return
-    // Probably over quota: drop our other keys and try once more.
-    this.evictOthers(key)
-    this.tryWrite(key, text)
+    // Probably over quota: evict the oldest cached month and retry, until it fits
+    // or nothing evictable is left (then it stays in memory only).
+    for (const victim of this.evictionOrder(key)) {
+      try {
+        this.storage.removeItem(victim)
+      } catch {
+        return
+      }
+      if (this.tryWrite(key, text)) return
+    }
   }
 
   private readStorage(key: string): unknown {
@@ -86,19 +103,23 @@ export class ArchiveCache {
     }
   }
 
-  private evictOthers(keep: string): void {
+  /** Cached month keys other than `keep`, oldest month first (ties by key). */
+  private evictionOrder(keep: string): string[] {
     const storage = this.storage
-    if (!storage) return
+    if (!storage) return []
+    const months: { key: string; month: string }[] = []
     try {
-      const keys: string[] = []
       for (let i = 0; i < storage.length; i++) {
         const k = storage.key(i)
-        if (k !== null && k.startsWith(KEY_PREFIX) && k !== keep) keys.push(k)
+        const match = k === null || k === keep ? null : EVICTABLE.exec(k)
+        if (k !== null && match) months.push({ key: k, month: match[1] })
       }
-      for (const k of keys) storage.removeItem(k)
     } catch {
-      // Storage unusable; memory still has the data.
+      return []
     }
+    return months
+      .sort((a, b) => (a.month === b.month ? (a.key < b.key ? -1 : 1) : a.month < b.month ? -1 : 1))
+      .map((m) => m.key)
   }
 }
 

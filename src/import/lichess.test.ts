@@ -147,8 +147,8 @@ describe('mapLichessGame', () => {
 })
 
 describe('nextCursor', () => {
-  it('is the oldest createdAt minus 1', () => {
-    expect(nextCursor([LICHESS_WIN, LICHESS_DRAW, LICHESS_LOSS])).toBe(String(LICHESS_DRAW.createdAt - 1))
+  it('is the oldest createdAt (until is inclusive; the list de-duplicates)', () => {
+    expect(nextCursor([LICHESS_WIN, LICHESS_DRAW, LICHESS_LOSS])).toBe(String(LICHESS_DRAW.createdAt))
     expect(nextCursor([{ id: 'x' }])).toBeUndefined()
   })
 })
@@ -193,16 +193,33 @@ describe('createLichessSource', () => {
     const oldest = 1793000000000 - (PAGE_SIZE - 1) * 1000
     const fake = fakeFetch({
       [url()]: { text: toNdjson(games) },
-      [url(String(oldest - 1))]: { text: toNdjson([LICHESS_DRAW]) },
+      [url(String(oldest))]: { text: toNdjson([LICHESS_DRAW]) },
     })
     const source = createLichessSource({ fetch: fake.fetch })
     const first = await source.fetchGames('thibault')
     expect(first.games).toHaveLength(PAGE_SIZE)
     expect(first.hasMore).toBe(true)
-    expect(first.cursor).toBe(String(oldest - 1))
+    expect(first.cursor).toBe(String(oldest))
     const second = await source.fetchGames('thibault', { cursor: first.cursor })
     expect(second.games.map((g) => g.id)).toEqual(['lichess:Draw0001'])
     expect(second.hasMore).toBe(false)
+  })
+
+  it.each([
+    ['an HTML page', '<!DOCTYPE html>\n<html><head><title>lichess.org</title></head>\n<body>Lichess is under maintenance</body></html>\n'],
+    ['a JSON error', '{"error":"Too many requests"}\n'],
+    ['JSON without game ids', '{"foo":1}\n{"bar":2}\n'],
+  ])('a 200 with %s is a bad-response error, not "no games"', async (_label, text) => {
+    const fake = fakeFetch({ [url()]: { text } })
+    await expect(createLichessSource({ fetch: fake.fetch }).fetchGames('thibault')).rejects.toMatchObject({
+      name: 'SourceError',
+      kind: 'bad-response',
+    })
+  })
+
+  it('an empty 200 body is just "no games"', async () => {
+    const fake = fakeFetch({ [url()]: { text: '' } })
+    expect(await createLichessSource({ fetch: fake.fetch }).fetchGames('thibault')).toEqual({ games: [], skipped: 0, hasMore: false })
   })
 
   it.each([

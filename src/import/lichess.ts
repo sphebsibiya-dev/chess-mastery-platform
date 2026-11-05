@@ -1,7 +1,7 @@
 import { asNumber, asString, getText, isRecord } from './http'
 import { outcomeFor, sameUser } from './summary'
 import { formatClock, formatDays, normaliseTimeClass, timeClassFromClock } from './timeControl'
-import type { FetchLike, FetchOptions, FetchPage, GameResult, GameSource, GameSummary } from './types'
+import { SourceError, type FetchLike, type FetchOptions, type FetchPage, type GameResult, type GameSource, type GameSummary } from './types'
 
 const API = 'https://lichess.org/api/games/user'
 const SITE = 'Lichess'
@@ -134,14 +134,19 @@ export function mapLichessGame(raw: unknown, username: string): GameSummary | nu
   return summary
 }
 
-/** `until` for the next page: just before the oldest game's start. */
+/**
+ * `until` for the next page: the oldest game's `createdAt`. `until` is inclusive,
+ * so the boundary game comes back again on the next page; that is deliberate, so
+ * other games created in the same millisecond (e.g. a simul) are not lost. The
+ * list de-duplicates by id (see `mergePage`).
+ */
 export function nextCursor(items: readonly Record<string, unknown>[]): string | undefined {
   let oldest: number | undefined
   for (const item of items) {
     const created = asNumber(item.createdAt)
     if (created !== undefined && (oldest === undefined || created < oldest)) oldest = created
   }
-  return oldest === undefined ? undefined : String(oldest - 1)
+  return oldest === undefined ? undefined : String(oldest)
 }
 
 export function lichessExportUrl(username: string, cursor?: string): string {
@@ -175,6 +180,11 @@ export function createLichessSource({ fetch }: LichessSourceDeps): GameSource {
         notFound: `No Lichess player called "${user}".`,
       })
       const { items, skipped: unreadable } = parseNdjson(text)
+      // A 200 that isn't a game export (HTML maintenance page, `{"error": ...}`):
+      // report it rather than showing "no games".
+      if (items.length + unreadable > 0 && !items.some((item) => typeof item.id === 'string')) {
+        throw new SourceError('bad-response', 'Lichess sent an unexpected response. Try again later.')
+      }
       const games: GameSummary[] = []
       let skipped = unreadable
       for (const item of items) {
