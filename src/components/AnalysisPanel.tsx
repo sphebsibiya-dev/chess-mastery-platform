@@ -1,18 +1,35 @@
 import { uciToSan } from '../chess/uci'
 import type { ImportedGame } from '../import/types'
+import type { KeyMoment } from '../review/keyMoments'
 import { CLASS_INFO, formatEval } from './analysisView'
 import ClassificationBadge from './ClassificationBadge'
+import KeyMoments, { type TimeTroubleEntry } from './KeyMoments'
 import type { GameAnalysisHandle } from './useGameAnalysis'
 
 interface AnalysisPanelProps {
   analysis: GameAnalysisHandle
   game: ImportedGame
   ply: number
+  /** Undefined until analysis is done. */
+  moments: readonly KeyMoment[] | undefined
+  /** First time-trouble move per side (empty without clocks). */
+  trouble: readonly TimeTroubleEntry[]
+  /** 'Clock 0:12 · took 1s' for the current move, when the game has clocks. */
+  clockText: string | undefined
+  onSelectPly: (ply: number) => void
 }
 
 const fmtAccuracy = (a: number | undefined) => (a === undefined ? '–' : a.toFixed(1))
 
-export default function AnalysisPanel({ analysis, game, ply }: AnalysisPanelProps) {
+export default function AnalysisPanel({
+  analysis,
+  game,
+  ply,
+  moments,
+  trouble,
+  clockText,
+  onSelectPly,
+}: AnalysisPanelProps) {
   const { state, positions, retry } = analysis
   const position = positions[ply]
   const bestSan = position?.bestMove ? uciToSan(position.fen, position.bestMove) : undefined
@@ -71,6 +88,12 @@ export default function AnalysisPanel({ analysis, game, ply }: AnalysisPanelProp
               : ''}
           </span>
         </p>
+      )}
+
+      {clockText && <p className="analysis-clock muted">{clockText}</p>}
+
+      {state.status !== 'error' && game.moves.length > 0 && (
+        <KeyMoments moments={moments} trouble={trouble} moves={game.moves} ply={ply} onSelectPly={onSelectPly} />
       )}
     </section>
   )
