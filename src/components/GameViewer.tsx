@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useReducer, type CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
 import type { ImportedGame } from '../import/types'
+import { mergeArrows, mergeSquareStyles } from './drawing'
+import DrawToolbar from './DrawToolbar'
 import MoveList from './MoveList'
 import NavControls from './NavControls'
 import { navReducer, type NavAction } from './navigation'
+import { useBoardDrawing } from './useBoardDrawing'
 
 interface GameViewerProps {
   game: ImportedGame
@@ -55,6 +58,7 @@ export default function GameViewer({ game }: GameViewerProps) {
   const squareStyles: Record<string, CSSProperties> = current
     ? { [current.from]: HIGHLIGHT, [current.to]: HIGHLIGHT }
     : {}
+  const drawing = useBoardDrawing(position)
 
   const { headers } = game
   const status = current
@@ -76,7 +80,9 @@ export default function GameViewer({ game }: GameViewerProps) {
               id: 'viewer-board',
               position,
               allowDragging: false,
-              squareStyles,
+              squareStyles: mergeSquareStyles(squareStyles, drawing.squareStyles),
+              arrows: mergeArrows(drawing.arrows),
+              ...drawing.boardOptions,
               animationDurationInMs: 150,
             }}
           />
@@ -85,6 +91,14 @@ export default function GameViewer({ game }: GameViewerProps) {
           {status}
         </div>
         <NavControls ply={ply} total={nav.total} onNavigate={navigate} />
+        <DrawToolbar
+          drawMode={drawing.drawMode}
+          onDrawModeChange={drawing.setDrawMode}
+          drawColor={drawing.drawColor}
+          onDrawColorChange={drawing.setDrawColor}
+          canClear={drawing.hasDrawings}
+          onClear={drawing.clear}
+        />
         {/* Below the controls so a long comment never moves the buttons. */}
         <p className="move-comment" aria-live="polite">
           {current?.comment ?? ''}
