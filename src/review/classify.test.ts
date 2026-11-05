@@ -6,7 +6,9 @@ import { parsePgn } from '../import/pgn'
 import type { ImportedGame } from '../import/types'
 import {
   ALREADY_WINNING_WP,
+  BOOK_MAX_LOSS,
   BRILLIANT_MIN_SACRIFICE,
+  BRILLIANT_MAX_PV_PLIES,
   BRILLIANT_MIN_WP_AFTER,
   BRILLIANT_PV_PLIES,
   classForLoss,
@@ -21,7 +23,7 @@ import {
   MISTAKE_MAX_LOSS,
   sacrificedMaterial,
 } from './classify'
-import { positionKey, type Opening } from './openings/book'
+import { loadOpeningBook, positionKey, type Opening } from './openings/book'
 import { moverWinPercent } from './winProbability'
 
 const cp = (n: number): Eval => ({ kind: 'cp', cp: n })
@@ -233,10 +235,43 @@ describe('sacrificedMaterial', () => {
     expect(sacrificedMaterial(fen, 'd2d7', 'w', ['d8d7', 'd1d7', 'g8f8'])).toBe(-1)
   })
 
-  it('looks at no more than BRILLIANT_PV_PLIES plies', () => {
-    // Ply 5 of the line would win the material back, but it is not looked at.
+  it('stops after BRILLIANT_PV_PLIES plies when the last one was quiet', () => {
+    // Ply 4 (h3) is quiet, so the win-back at ply 6 is not looked at.
     const fen = '3r2k1/3p1ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1'
-    expect(sacrificedMaterial(fen, 'd2d7', 'w', ['d8d7', 'g2g3', 'g8f8', 'd1d7', 'f8e8'])).toBe(4)
+    expect(sacrificedMaterial(fen, 'd2d7', 'w', ['d8d7', 'g2g3', 'g8f8', 'h2h3', 'g7g6', 'd1d7'])).toBe(4)
+  })
+
+  it("counts the mover's own recapture at the end of the line (routine exchange is not a sacrifice)", () => {
+    // Reviewer's repro: Nxd5 Nxd5 Bxd5 Nxd5 Rxd5 wins a pawn; White goes +4 -> +5.
+    const fen = '6k1/8/1n3n2/3p4/8/2N2B2/8/3R2K1 w - - 0 1'
+    const pv = ['f6d5', 'f3d5', 'b6d5', 'd1d5']
+    expect(sacrificedMaterial(fen, 'c3d5', 'w', pv)).toBe(-1)
+    const r = classifyMove({
+      move: { ply: 1, color: 'w', lan: 'c3d5', fenBefore: fen },
+      before: cp(40),
+      after: cp(120),
+      bestMove: 'c3d5',
+      pvAfter: pv,
+    })
+    expect(r.cls).toBe('best')
+  })
+
+  it('keeps replaying past BRILLIANT_PV_PLIES while captures continue', () => {
+    // Rxd7 Rxd7, g3 h6, Rxd7 (capture at ply 4) Kxd7 (ply 5): the rook is lost after all.
+    const fen = '3rk3/3p1ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1'
+    const pv = ['d8d7', 'g2g3', 'h7h6', 'd1d7', 'e8d7', 'g3g4', 'h6h5']
+    expect(sacrificedMaterial(fen, 'd2d7', 'w', pv)).toBe(4)
+    // Stopping at ply 4 would have read White's balance after Rxd7 (+5) and missed Kxd7.
+    expect(sacrificedMaterial(fen, 'd2d7', 'w', pv.slice(0, 4))).toBe(-1)
+  })
+
+  it('exports the capture-extension cap', () => {
+    expect(BRILLIANT_MAX_PV_PLIES).toBe(10)
+  })
+
+  it('counts material won by the move itself as a negative sacrifice', () => {
+    // Rxd8+ wins a rook outright.
+    expect(sacrificedMaterial('3r2k1/8/8/8/8/8/8/3R2K1 w - - 0 1', 'd1d8', 'w', ['g8h7'])).toBe(-5)
   })
 
   it('is undefined without an opponent reply or for an illegal move', () => {
@@ -476,7 +511,7 @@ describe('book', () => {
     expect(classifyMove({ move, before: cp(0), after: cp(0), inBook: true }).cls).toBe('forced')
   })
 
-  it('beats miss and loss classes, and counts as 100 accuracy', () => {
+  it('does not cover a losing move: a big loss inside the book is classified normally (here a miss)', () => {
     const r = classifyMove({
       move: black,
       before: cp(-300),
@@ -486,8 +521,8 @@ describe('book', () => {
       prevMove: { color: 'w', to: 'e4', san: 'e4' },
       prevReview: { loss: 30 },
     })
-    expect(r.cls).toBe('book')
-    expect(r.accuracy).toBe(100)
+    expect(r.cls).toBe('miss')
+    expect(r.accuracy).toBeLessThan(100)
   })
 })
 
@@ -578,5 +613,62 @@ describe('classifyGame with the new classes', () => {
     analysis.positions[0].bestMove = 'b3g8'
     analysis.positions[1].pv = PHILIDOR_PV
     expect(classifyGame(game, analysis).reviews[0].cls).toBe('brilliant')
+  })
+})
+
+describe('book moves that lose', () => {
+  function analysisFor(game: ImportedGame, evals: Eval[], best: (string | undefined)[]): GameAnalysis {
+    return {
+      gameId: game.id,
+      depth: 14,
+      positions: evals.map((e, i) => ({
+        fen: i === 0 ? game.startFen : game.moves[i - 1].fenAfter,
+        eval: e,
+        bestMove: best[i],
+        pv: [],
+        depth: 14,
+        lines: [],
+      })),
+    }
+  }
+
+  it("does not hide Fool's mate behind Book, even though the whole line is in the real book", async () => {
+    const parsed = parsePgn(TWO_GAMES)
+    if (!parsed.ok) throw new Error(parsed.error)
+    const game = parsed.games[1] // 1.f3 e5 2.g4?? Qh4#
+    const book = await loadOpeningBook()
+    expect(game.moves.every((m) => book.has(positionKey(m.fenAfter)))).toBe(true)
+    const evals = [cp(20), cp(-60), cp(-50), mate(1, 'b'), mate(0, 'b')]
+    const analysis = analysisFor(game, evals, ['e2e4', 'e7e5', 'e2e4', 'd8h4', undefined])
+    const { reviews, opening } = classifyGame(game, analysis, { book })
+    // 1.f3 loses about 7 (< BOOK_MAX_LOSS) and stays book; 2.g4?? is a blunder and ends the run.
+    expect(reviews.map((r) => r.cls)).toEqual(['book', 'book', 'blunder', 'best'])
+    expect(reviews[2].accuracy).toBeLessThan(100)
+    // The opening comes from the book moves that count, not the trap line's name.
+    expect(opening?.name).not.toMatch(/Fool's Mate/)
+  })
+
+  it('uses BOOK_MAX_LOSS as the cut-off', () => {
+    expect(BOOK_MAX_LOSS).toBe(INACCURACY_MAX_LOSS)
+    const below = classifyMove({ move: white, before: cp(30), after: cp(-30), bestMove: 'd2d4', inBook: true })
+    expect(below.loss).toBeLessThan(BOOK_MAX_LOSS)
+    expect(below.cls).toBe('book')
+    const above = classifyMove({ move: white, before: cp(30), after: cp(-100), bestMove: 'd2d4', inBook: true })
+    expect(above.loss).toBeGreaterThanOrEqual(BOOK_MAX_LOSS)
+    expect(above.cls).toBe('mistake')
+  })
+
+  it('a losing book move ends the book run for the rest of the game', () => {
+    const parsed = parsePgn(RUY_LOPEZ)
+    if (!parsed.ok) throw new Error(parsed.error)
+    const game = parsed.games[0]
+    // Every position of the game is in this hand-made book.
+    const book = new Map(game.moves.map((m) => [positionKey(m.fenAfter), null] as const))
+    // Ply 3 (2.Nf3) is scored as a big loss; the evals stay flat afterwards.
+    const evals = [cp(20), cp(20), cp(20), ...Array(game.moves.length - 2).fill(cp(-400))]
+    const analysis = analysisFor(game, evals, Array(evals.length).fill(undefined))
+    const { reviews } = classifyGame(game, analysis, { book })
+    expect(reviews[2].cls).toBe('blunder')
+    expect(reviews.slice(3).some((r) => r.cls === 'book')).toBe(false)
   })
 })

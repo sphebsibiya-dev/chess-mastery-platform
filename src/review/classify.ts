@@ -4,7 +4,7 @@ import { uciToSan, uciToSquares } from '../chess/uci'
 import type { AnalysisLine, Eval, GameAnalysis } from '../engine/types'
 import type { ImportedGame, ImportedMove } from '../import/types'
 import { accuracyFromLoss, gameAccuracy } from './accuracy'
-import { bookPrefix, type BookPrefix, type Opening, type OpeningBook } from './openings/book'
+import { bookPrefix, type Opening, type OpeningBook } from './openings/book'
 import type { MoveClass, MoveReview, SideAccuracy } from './types'
 import { moverWinPercent, winPercent } from './winProbability'
 
@@ -32,6 +32,12 @@ export const BRILLIANT_MIN_WP_AFTER = 50
 export const BRILLIANT_PV_PLIES = 4
 /** Great: the best line must be at least this much win% better than the second-best line. */
 export const GREAT_MIN_GAP = 15
+/**
+ * Book: a book move only counts as `book` while it loses less than this. The
+ * opening list includes trap lines (e.g. "Barnes Opening: Fool's Mate"), and a
+ * losing move there must still be called out. Such a move ends the book run.
+ */
+export const BOOK_MAX_LOSS = INACCURACY_MAX_LOSS
 /** Miss: the opponent's previous move must have lost at least this much... */
 export const MISS_MIN_GIFT = 20
 /** ...and this move gives back at least this fraction of it (and at least `INACCURACY_MAX_LOSS`). */
@@ -57,7 +63,7 @@ export interface ClassifyInput {
   lines?: readonly AnalysisLine[]
   /** Engine line (UCI) from the position after the move (for Brilliant). */
   pvAfter?: readonly string[]
-  /** The move is part of the game's leading run of book moves. */
+  /** The move is part of the game's leading run of book moves (it is `book` only if its loss is below `BOOK_MAX_LOSS`). */
   inBook?: boolean
   /** The game's previous move and its review (for Miss and the recapture guard on Great). */
   prevMove?: Pick<ImportedMove, 'color' | 'to' | 'san'>
@@ -65,11 +71,21 @@ export interface ClassifyInput {
 }
 
 /**
+ * Brilliant: while captures continue, the engine line is replayed past
+ * `BRILLIANT_PV_PLIES`, up to this many plies (so an exchange is seen to its end).
+ */
+export const BRILLIANT_MAX_PV_PLIES = 10
+
+/**
  * Material the mover gives up along the engine line: the mover's material
- * balance before the move minus the best balance it has each time it is its
- * turn again within `BRILLIANT_PV_PLIES` plies of `pvAfter`. Taking the best
- * balance means material won straight back is a trade, not a sacrifice.
- * Undefined if the opponent has no reply in the line (or the move is illegal).
+ * balance before the move minus the best balance it reaches along `pvAfter`.
+ * The line is replayed for `BRILLIANT_PV_PLIES` plies, and further (up to
+ * `BRILLIANT_MAX_PV_PLIES`) while the last ply was a capture, so an exchange is
+ * followed until it stops. The balance is read each time it is the mover's turn
+ * and once more at the end of the replayed line (which catches the mover's own
+ * final recapture). Taking the best balance means material won back is a trade,
+ * not a sacrifice. Undefined if the opponent has no reply in the line (or the
+ * move is illegal).
  */
 export function sacrificedMaterial(
   fenBefore: string,
@@ -79,26 +95,36 @@ export function sacrificedMaterial(
 ): number | undefined {
   const chess = new Chess(fenBefore)
   const before = balanceOf(chess, color)
-  const play = (uci: string): boolean => {
+  /** Plays a UCI move; returns whether it captured, or undefined if it is illegal. */
+  const play = (uci: string): boolean | undefined => {
     const squares = uciToSquares(uci)
-    if (!squares) return false
+    if (!squares) return undefined
     try {
-      chess.move(squares)
-      return true
+      return chess.move(squares).isCapture()
     } catch {
-      return false
+      return undefined
     }
   }
-  if (!play(lan)) return undefined
+  if (play(lan) === undefined) return undefined
   let best: number | undefined
-  for (const uci of pvAfter.slice(0, BRILLIANT_PV_PLIES)) {
-    if (!play(uci)) break
-    if (chess.turn() === color) {
-      const balance = balanceOf(chess, color)
-      best = best === undefined ? balance : Math.max(best, balance)
-    }
+  const sample = () => {
+    const balance = balanceOf(chess, color)
+    best = best === undefined ? balance : Math.max(best, balance)
   }
-  return best === undefined ? undefined : before - best
+  let played = 0
+  let lastWasCapture = false
+  for (const uci of pvAfter) {
+    if (played >= BRILLIANT_MAX_PV_PLIES) break
+    if (played >= BRILLIANT_PV_PLIES && !lastWasCapture) break
+    const captured = play(uci)
+    if (captured === undefined) break
+    played++
+    lastWasCapture = captured
+    if (chess.turn() === color) sample()
+  }
+  if (played === 0) return undefined
+  sample()
+  return before - (best as number)
 }
 
 /** The move recaptures on the square where the opponent just captured. */
@@ -109,7 +135,8 @@ function isRecapture(lan: string, prevMove: ClassifyInput['prevMove']): boolean 
 /**
  * Classifies one move. Precedence, first match wins:
  * 1. `forced`: the only legal move.
- * 2. `book`: part of the game's leading run of opening-book moves.
+ * 2. `book`: part of the game's leading run of opening-book moves, with a loss
+ *    below `BOOK_MAX_LOSS` (otherwise it is classified as if out of book).
  * 3. `brilliant`: a good move (loss < `EXCELLENT_MAX_LOSS`, or the engine's best
  *    move) that gives up at least `BRILLIANT_MIN_SACRIFICE` points along the
  *    engine line, leaves the mover at >= `BRILLIANT_MIN_WP_AFTER` and was not
@@ -165,7 +192,7 @@ export function classifyMove({
 
   let cls: MoveClass
   if (legalMoves === 1) cls = 'forced'
-  else if (inBook) cls = 'book'
+  else if (inBook && loss < BOOK_MAX_LOSS) cls = 'book'
   else if (brilliant()) cls = 'brilliant'
   else if (great()) cls = 'great'
   else if (isBest) cls = 'best'
@@ -188,7 +215,11 @@ export function classifyMove({
 export interface GameReview {
   reviews: MoveReview[]
   accuracy: SideAccuracy
-  /** The deepest named opening the game reached while in the book. Only set when a book is given. */
+  /**
+   * The deepest named opening reached within the game's book moves (the run ends
+   * at the first move that is out of book or loses `BOOK_MAX_LOSS` or more).
+   * Only set when a book is given.
+   */
   opening?: Opening
 }
 
@@ -207,29 +238,34 @@ export function classifyGame(
   if (positions.length !== game.moves.length + 1) {
     throw new Error(`Expected ${game.moves.length + 1} positions, got ${positions.length}`)
   }
-  const prefix: BookPrefix = book ? bookPrefix(game, book) : { plies: 0 }
+  // Positions alone give the longest possible book run; it ends earlier at the
+  // first book move that loses too much (forced moves inside the book keep it going).
+  let bookPlies = book ? bookPrefix(game, book).plies : 0
 
   const reviews: MoveReview[] = []
   for (const [i, move] of game.moves.entries()) {
-    reviews.push(
-      classifyMove({
-        move,
-        before: positions[i].eval,
-        after: positions[i + 1].eval,
-        bestMove: positions[i].bestMove,
-        lines: positions[i].lines,
-        pvAfter: positions[i + 1].pv,
-        inBook: i < prefix.plies,
-        prevMove: game.moves[i - 1],
-        prevReview: reviews[i - 1],
-      }),
-    )
+    const inBook = i < bookPlies
+    const review = classifyMove({
+      move,
+      before: positions[i].eval,
+      after: positions[i + 1].eval,
+      bestMove: positions[i].bestMove,
+      lines: positions[i].lines,
+      pvAfter: positions[i + 1].pv,
+      inBook,
+      prevMove: game.moves[i - 1],
+      prevReview: reviews[i - 1],
+    })
+    if (inBook && review.cls !== 'book' && review.cls !== 'forced') bookPlies = i
+    reviews.push(review)
   }
   const accuracy = gameAccuracy(
     positions.map((p) => winPercent(p.eval)),
     reviews.map((r, i) => ({ color: game.moves[i].color, accuracy: r.accuracy })),
   )
   const result: GameReview = { reviews, accuracy }
-  if (prefix.opening) result.opening = prefix.opening
+  const bookMoves = { startFen: game.startFen, moves: game.moves.slice(0, bookPlies) }
+  const opening = book ? bookPrefix(bookMoves, book).opening : undefined
+  if (opening) result.opening = opening
   return result
 }
