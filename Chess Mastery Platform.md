@@ -1,6 +1,6 @@
 # Idea 6: Chess Review and Coach Platform
 
-Status: **new idea, added Fri 30 Oct 2026 (voice chat).** Review feature chosen as the starting point.
+Status: **new idea, added Fri 30 Oct 2026 (voice chat).** Review feature chosen as the starting point. Working name: **Mogfish** (added Thu 5 Nov 2026).
 
 ## Master plan
 
@@ -33,6 +33,7 @@ These were missing from the earlier sections and affect every feature.
 - **Over-the-board game entry:** record a real-life game by tapping moves on a board, or later by photographing the scoresheet, then review it like any other game.
 - **Daily puzzle:** one puzzle a day from the Lichess database, with a streak, to build a habit.
 - **Board themes and sound:** piece sets, board colours and move sounds, which make a big difference to how the app feels. Specific idea (added Wed 4 Nov 2026): themed, characterful sound effects per move type rather than generic clicks — e.g. a horse neigh for a knight move, a sniper rifle chambering sound for a long cross-board capture, a rock sliding across stone for castling. Treat as a sound-pack concept (move type → sound), separate from the default/neutral sound set; could ship as a selectable fun theme alongside a plain one. This is cosmetic polish, not in the core build order — revisit once the review loop (steps 1-2) and board UI exist.
+- **Board drawing and square highlighting:** chess.com-style annotation on the board (added Thu 5 Nov 2026) — right-click-drag draws an arrow between squares, right-click a single square highlights it, clicking an existing arrow/highlight again removes it, a normal left click clears everything; modifier keys (shift/ctrl/alt) switch colour; mobile needs its own input (long-press or a draw-mode toggle, since there's no right-click). `react-chessboard` already supports arrows and highlights natively, so it's mostly wiring up input events. **Decision: not saved for now** — drawings stay temporary, live only while viewing a position, and clear on navigating away. No storage or backend needed. Saving annotations with a game review (so they're shareable, or a coach can annotate in a different colour) was considered and set aside as a possible future extension, not planned now. This is board UI work with no dependency on Stockfish, accounts or storage — it sits on the interactive board itself (step 1), with no build-order step of its own yet. Also useful later for coach mode (step 8), which could draw its own arrows to highlight a threat or the engine's suggested move, reusing the same drawing layer.
 - **Game review sharing:** a link to a review so friends or a coach can step through it.
 - **Post-game quick summary:** three sentences after every game, written by Claude: what went well, the main mistake, and one thing to practise.
 
@@ -69,7 +70,7 @@ One order across every feature, replacing the separate build orders below.
 
 **Product**
 
-- [ ] Name and domain for the platform.
+- [x] Name and domain for the platform. Working name: **Mogfish** (added Thu 5 Nov 2026). Domain/handle availability not yet confirmed.
 - [ ] Free for everyone, or a paid tier later?
 - [ ] Who writes and checks the lesson content?
 
@@ -156,7 +157,7 @@ The original thought was to reverse engineer chess.com's game review (using the 
 
 ## Open questions
 
-- [ ] Name and domain for the platform.
+- [x] Name and domain for the platform. Working name: **Mogfish** (added Thu 5 Nov 2026). Domain/handle availability not yet confirmed.
 - [ ] Browser-only (Stockfish WASM) or a backend for deeper analysis?
 - [ ] Recording games: manual move entry, an on-screen board, or photo and scan of a scoresheet?
 - [ ] Should the coach use Claude for every tip, or only for explanations on request, to manage cost?

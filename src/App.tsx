@@ -18,7 +18,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Chess Mastery</h1>
+        <h1>Mogfish</h1>
         <p>Review your games, learn from your own mistakes.</p>
       </header>
       <main>
