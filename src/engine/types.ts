@@ -65,7 +65,11 @@ export interface PositionAnalysis {
   pv: string[]
   /** Search depth reached; 0 for positions scored without the engine (mate/draw on the board). */
   depth: number
-  /** Top engine lines, best first, White POV. Empty for positions scored without the engine. */
+  /**
+   * Top engine lines, best first, White POV. One line normally; two when the move
+   * played from here was the engine's best (see `analyseGame`). Empty for positions
+   * scored without the engine.
+   */
   lines: AnalysisLine[]
 }
 

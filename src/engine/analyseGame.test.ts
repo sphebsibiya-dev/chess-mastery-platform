@@ -3,7 +3,7 @@ import { TWO_GAMES } from '../import/fixtures'
 import { parsePgn } from '../import/pgn'
 import type { ImportedGame } from '../import/types'
 import { isAbortError } from './abort'
-import { analyseGame } from './analyseGame'
+import { analyseGame, GREAT_CHECK_MULTI_PV } from './analyseGame'
 import type { AnalyseOptions, Engine, EngineResult } from './types'
 
 function foolsMate(): ImportedGame {
@@ -12,8 +12,12 @@ function foolsMate(): ImportedGame {
   return result.games[1]
 }
 
-/** Returns +40 cp for the side to move in every position. */
+/**
+ * Returns +40 cp for the side to move in every position, best move 'a2a3' unless
+ * `best` names another for that FEN, and as many lines as `multiPv` asks for.
+ */
 class FakeEngine implements Engine {
+  best = new Map<string, string>()
   seen: string[] = []
   options: AnalyseOptions[] = []
   newGames = 0
@@ -28,15 +32,17 @@ class FakeEngine implements Engine {
     this.seen.push(fen)
     this.options.push(opts)
     if (opts.signal?.aborted) throw new DOMException('Analysis aborted', 'AbortError')
+    const bestMove = this.best.get(fen) ?? 'a2a3'
+    const lines = [
+      { move: bestMove, score: { type: 'cp' as const, value: 40 }, pv: [bestMove] },
+      { move: 'h2h3', score: { type: 'cp' as const, value: 10 }, pv: ['h2h3'] },
+    ]
     return {
       score: { type: 'cp', value: 40 },
-      bestMove: 'a2a3',
-      pv: ['a2a3'],
+      bestMove,
+      pv: [bestMove],
       depth: 14,
-      lines: [
-        { move: 'a2a3', score: { type: 'cp', value: 40 }, pv: ['a2a3'] },
-        { move: 'h2h3', score: { type: 'cp', value: 10 }, pv: ['h2h3'] },
-      ],
+      lines: lines.slice(0, opts.multiPv ?? 1),
     }
   }
 }
@@ -79,34 +85,62 @@ describe('analyseGame', () => {
     })
   })
 
-  it('asks for two lines by default and stores them in White POV', async () => {
+  it('exports the number of lines used for the Great check', () => {
+    expect(GREAT_CHECK_MULTI_PV).toBe(2)
+  })
+
+  it('re-searches with MultiPV 2 right after a position whose best move was played', async () => {
+    const game = foolsMate() // 1.f3 e5 2.g4 Qh4#
     const engine = new FakeEngine()
-    const analysis = await analyseGame(foolsMate(), engine)
-    expect(engine.options.every((o) => o.multiPv === 2)).toBe(true)
-    // Start position: White to move, kept as is.
-    expect(analysis.positions[0].lines).toEqual([
-      { move: 'a2a3', eval: { kind: 'cp', cp: 40 }, pv: ['a2a3'] },
-      { move: 'h2h3', eval: { kind: 'cp', cp: 10 }, pv: ['h2h3'] },
+    engine.best.set(game.moves[0].fenAfter, 'e7e5') // Black then plays e5
+    engine.best.set(game.moves[2].fenAfter, 'd8h4') // and Qh4#
+    const progress: [number, number][] = []
+    const analysis = await analyseGame(game, engine, { onProgress: (done, total) => progress.push([done, total]) })
+
+    expect(engine.options.map((o) => o.multiPv)).toEqual([1, 1, 2, 1, 1, 2])
+    expect(engine.seen).toEqual([
+      game.startFen,
+      game.moves[0].fenAfter,
+      game.moves[0].fenAfter,
+      game.moves[1].fenAfter,
+      game.moves[2].fenAfter,
+      game.moves[2].fenAfter,
     ])
-    // After 1.f3: Black to move, so +40 for the mover is -40 for White.
-    expect(analysis.positions[1].lines.map((l) => l.eval)).toEqual([
-      { kind: 'cp', cp: -40 },
-      { kind: 'cp', cp: -10 },
+    expect(analysis.positions.map((p) => p.lines.length)).toEqual([1, 2, 1, 2, 0])
+    // Black to move: the lines are flipped to White's POV.
+    expect(analysis.positions[1].lines).toEqual([
+      { move: 'e7e5', eval: { kind: 'cp', cp: -40 }, pv: ['e7e5'] },
+      { move: 'h2h3', eval: { kind: 'cp', cp: -10 }, pv: ['h2h3'] },
+    ])
+    // eval / bestMove / pv come from the first search.
+    expect(analysis.positions[1]).toMatchObject({ eval: { kind: 'cp', cp: -40 }, bestMove: 'e7e5', pv: ['e7e5'] })
+    // One progress tick per position, re-searches included.
+    expect(progress).toEqual([
+      [1, 5],
+      [2, 5],
+      [3, 5],
+      [4, 5],
+      [5, 5],
     ])
   })
 
-  it('passes a custom multiPv through', async () => {
-    const engine = new FakeEngine()
-    await analyseGame(foolsMate(), engine, { multiPv: 1 })
-    expect(engine.options.every((o) => o.multiPv === 1)).toBe(true)
-  })
-
-  it("flips Black-to-move scores to White's POV", async () => {
+  it('keeps one line where the played move was not the best move', async () => {
     const analysis = await analyseGame(foolsMate(), new FakeEngine())
-    const cps = analysis.positions.slice(0, 4).map((p) => (p.eval.kind === 'cp' ? p.eval.cp : NaN))
-    // Start (White to move), after f3 (Black), after e5 (White), after g4 (Black).
-    expect(cps).toEqual([40, -40, 40, -40])
-    expect(analysis.positions[0].bestMove).toBe('a2a3')
+    expect(analysis.positions[0].lines).toEqual([{ move: 'a2a3', eval: { kind: 'cp', cp: 40 }, pv: ['a2a3'] }])
+  })
+
+  it('stops and rejects when aborted during a re-search', async () => {
+    const game = foolsMate()
+    const engine = new FakeEngine()
+    engine.best.set(game.moves[0].fenAfter, 'e7e5')
+    const controller = new AbortController()
+    engine.onAnalyse = (index) => {
+      if (index === 2) controller.abort() // the MultiPV 2 search of position 1
+    }
+    const err = await analyseGame(game, engine, { signal: controller.signal }).catch((e: unknown) => e)
+    expect(isAbortError(err)).toBe(true)
+    expect(engine.options[2].multiPv).toBe(2)
+    expect(engine.seen).toHaveLength(3)
   })
 
   it('stops and rejects when aborted', async () => {
