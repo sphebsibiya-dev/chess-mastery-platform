@@ -74,6 +74,20 @@ button.primary:hover { background: #46895a; }
 .nav-controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .nav-controls button { font-size: 1.1rem; }
 
+/* Board drawing toolbar: one row at 375px (Draw + 4 swatches + Clear). */
+.draw-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.draw-toolbar button { padding: 8px 10px; }
+.draw-toggle[aria-pressed='true'] { background: #3d7a4c; border-color: #7fc48f; }
+.draw-toggle[aria-pressed='true']:hover { background: #46895a; }
+.draw-swatches { display: flex; gap: 2px; }
+.draw-toolbar .draw-swatch { width: 40px; padding: 0; }
+.draw-swatch-dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); }
+.draw-swatch[aria-pressed='true'] { border-color: #e8ece9; background: #2e3732; }
+.draw-swatch[aria-pressed='true'] .draw-swatch-dot { border-color: #fff; }
+.draw-clear { margin-left: auto; }
+/* Long-press on a square should not open the touch callout while drawing. */
+.board-wrap { -webkit-touch-callout: none; }
+
 .move-list {
   list-style: none;
   margin: 0;
