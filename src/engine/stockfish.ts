@@ -144,10 +144,15 @@ export class StockfishEngine implements Engine {
       if (aborted) throw abortError()
       const final = latest.get(1)
       if (!final) throw new Error(`Engine returned no evaluation for ${fen}`)
-      const lines: EngineLine[] = [...latest.values()]
-        .filter((info) => info.depth === final.depth && info.pv.length > 0)
-        .sort((a, b) => a.multipv - b.multipv)
-        .map((info) => ({ move: info.pv[0], score: info.score, pv: info.pv }))
+      // Line 1 always comes first so lines[0] matches score/pv. Without a PV for
+      // line 1 there is no usable line at all, so the result has no lines.
+      const lines: EngineLine[] =
+        final.pv.length === 0
+          ? []
+          : [...latest.values()]
+              .filter((info) => info.depth === final.depth && info.pv.length > 0)
+              .sort((a, b) => a.multipv - b.multipv)
+              .map((info) => ({ move: info.pv[0], score: info.score, pv: info.pv }))
       return { score: final.score, bestMove, pv: final.pv, depth: final.depth, lines }
     } finally {
       signal?.removeEventListener('abort', onAbort)

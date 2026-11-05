@@ -106,6 +106,19 @@ describe('StockfishEngine', () => {
     expect(result.lines[0].pv).toEqual(result.pv)
   })
 
+  it('never puts line 2 first when line 1 has no PV', async () => {
+    const worker = new FakeWorker()
+    worker.searches.push([
+      'info depth 10 multipv 1 score cp -38',
+      'info depth 10 multipv 2 score cp -45 pv c7c5 g1f3',
+      'bestmove e7e6',
+    ])
+    const engine = new StockfishEngine(worker)
+    const result = await engine.analyse(FEN, { depth: 10, multiPv: 2 })
+    expect(result.score).toEqual({ type: 'cp', value: -38 })
+    expect(result.lines).toEqual([])
+  })
+
   it('leaves out lines that did not reach the final depth', async () => {
     const worker = new FakeWorker()
     worker.searches.push([
