@@ -12,6 +12,21 @@ export type Eval =
   | { kind: 'mate'; in: number; winner: 'w' | 'b' }
   | { kind: 'draw' }
 
+/** One engine line (MultiPV entry), side-to-move POV like `EngineResult.score`. */
+export interface EngineLine {
+  /** First move of the line, UCI notation. */
+  move: string
+  score: UciScore
+  pv: string[]
+}
+
+/** One engine line from a position, White POV. */
+export interface AnalysisLine {
+  move: string
+  eval: Eval
+  pv: string[]
+}
+
 /** Raw engine result for one position, side-to-move POV. */
 export interface EngineResult {
   score: UciScore
@@ -19,10 +34,18 @@ export interface EngineResult {
   bestMove?: string
   pv: string[]
   depth: number
+  /**
+   * The top lines at the final depth, best first. `lines[0]` matches `score`/`pv`.
+   * Lines that did not reach the final depth are left out; may be empty when the
+   * best line has no PV.
+   */
+  lines: EngineLine[]
 }
 
 export interface AnalyseOptions {
   depth: number
+  /** Number of lines to search (UCI `MultiPV`). Default 1. */
+  multiPv?: number
   signal?: AbortSignal
 }
 
@@ -42,6 +65,8 @@ export interface PositionAnalysis {
   pv: string[]
   /** Search depth reached; 0 for positions scored without the engine (mate/draw on the board). */
   depth: number
+  /** Top engine lines, best first, White POV. Empty for positions scored without the engine. */
+  lines: AnalysisLine[]
 }
 
 export interface GameAnalysis {

@@ -154,7 +154,7 @@ describe('classifyGame', () => {
     const analysis: GameAnalysis = {
       gameId: game.id,
       depth: 14,
-      positions: evals.map((e, i) => ({ fen: i === 0 ? game.startFen : game.moves[i - 1].fenAfter, eval: e, bestMove: best[i], pv: [], depth: 14 })),
+      positions: evals.map((e, i) => ({ fen: i === 0 ? game.startFen : game.moves[i - 1].fenAfter, eval: e, bestMove: best[i], pv: [], depth: 14, lines: [] })),
     }
     const { reviews, accuracy } = classifyGame(game, analysis)
     expect(reviews.map((r) => r.cls)).toEqual(['inaccuracy', 'best', 'blunder', 'best'])

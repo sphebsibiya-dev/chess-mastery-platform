@@ -80,7 +80,61 @@ describe('StockfishEngine', () => {
       bestMove: 'e7e6',
       pv: ['e7e6', 'b1c3', 'd7d5'],
       depth: 10,
+      lines: [{ move: 'e7e6', score: { type: 'cp', value: -38 }, pv: ['e7e6', 'b1c3', 'd7d5'] }],
     })
+    // Default MultiPV 1 needs no setoption.
+    expect(worker.sent.some((m) => m.includes('MultiPV'))).toBe(false)
+  })
+
+  it('collects the top lines at the final depth with multiPv 2', async () => {
+    const worker = new FakeWorker()
+    worker.searches.push([
+      'info depth 9 seldepth 10 multipv 1 score cp -36 nodes 1 pv c7c5 g1f3',
+      'info depth 9 seldepth 10 multipv 2 score cp -50 nodes 1 pv e7e5 g1f3',
+      'info depth 10 seldepth 12 multipv 1 score cp -38 nodes 2 pv e7e6 b1c3',
+      'info depth 10 seldepth 12 multipv 2 score cp -45 nodes 2 pv c7c5 g1f3',
+      'bestmove e7e6 ponder b1c3',
+    ])
+    const engine = new StockfishEngine(worker)
+    const result = await engine.analyse(FEN, { depth: 10, multiPv: 2 })
+    expect(result.depth).toBe(10)
+    expect(result.lines).toEqual([
+      { move: 'e7e6', score: { type: 'cp', value: -38 }, pv: ['e7e6', 'b1c3'] },
+      { move: 'c7c5', score: { type: 'cp', value: -45 }, pv: ['c7c5', 'g1f3'] },
+    ])
+    expect(result.lines[0].score).toEqual(result.score)
+    expect(result.lines[0].pv).toEqual(result.pv)
+  })
+
+  it('leaves out lines that did not reach the final depth', async () => {
+    const worker = new FakeWorker()
+    worker.searches.push([
+      'info depth 9 multipv 1 score cp -36 pv c7c5',
+      'info depth 9 multipv 2 score cp -50 pv e7e5',
+      'info depth 10 multipv 1 score cp -38 pv e7e6',
+      'bestmove e7e6',
+    ])
+    const engine = new StockfishEngine(worker)
+    const result = await engine.analyse(FEN, { depth: 10, multiPv: 2 })
+    expect(result.lines).toHaveLength(1)
+    expect(result.lines[0].move).toBe('e7e6')
+  })
+
+  it('sends the MultiPV option only when it changes', async () => {
+    const worker = new FakeWorker()
+    const reply = ['info depth 5 multipv 1 score cp 1 pv e7e5', 'bestmove e7e5']
+    worker.searches.push(reply, reply, reply)
+    const engine = new StockfishEngine(worker)
+    await engine.analyse(FEN, { depth: 5, multiPv: 2 })
+    await engine.analyse(FEN, { depth: 5, multiPv: 2 })
+    await engine.analyse(FEN, { depth: 5 })
+    expect(worker.sent.filter((m) => m.includes('MultiPV'))).toEqual([
+      'setoption name MultiPV value 2',
+      'setoption name MultiPV value 1',
+    ])
+    // The option is set before the position is sent.
+    const setIndex = worker.sent.indexOf('setoption name MultiPV value 2')
+    expect(worker.sent[setIndex + 1]).toBe(`position fen ${FEN}`)
   })
 
   it('handles several lines in one message', async () => {
@@ -121,7 +175,7 @@ describe('StockfishEngine', () => {
     worker.manualGo = true
     const engine = new StockfishEngine(worker)
     const controller = new AbortController()
-    const pending = engine.analyse(FEN, { depth: 20, signal: controller.signal })
+    const pending = engine.analyse(FEN, { depth: 20, multiPv: 2, signal: controller.signal })
     await new Promise((r) => setTimeout(r, 0))
     controller.abort()
     const err = await pending.catch((e: unknown) => e)

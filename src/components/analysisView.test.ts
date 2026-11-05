@@ -104,8 +104,8 @@ describe('formatEval', () => {
 
 describe('engineArrows', () => {
   const positions: PositionAnalysis[] = [
-    { fen: START_FEN, eval: { kind: 'cp', cp: 20 }, bestMove: 'e2e4', pv: ['e2e4'], depth: 14 },
-    { fen: 'x', eval: { kind: 'mate', in: 0, winner: 'w' }, pv: [], depth: 0 },
+    { fen: START_FEN, eval: { kind: 'cp', cp: 20 }, bestMove: 'e2e4', pv: ['e2e4'], depth: 14, lines: [] },
+    { fen: 'x', eval: { kind: 'mate', in: 0, winner: 'w' }, pv: [], depth: 0, lines: [] },
   ]
 
   it('draws the best move for the current ply', () => {

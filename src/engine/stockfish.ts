@@ -1,6 +1,6 @@
 import { abortError } from './abort'
 import { parseBestMove, parseInfo, type UciInfo } from './uci'
-import type { AnalyseOptions, Engine, EngineResult } from './types'
+import type { AnalyseOptions, Engine, EngineLine, EngineResult } from './types'
 
 /** The part of `Worker` the engine uses, so tests can pass a fake. */
 export interface WorkerLike {
@@ -48,6 +48,8 @@ export class StockfishEngine implements Engine {
   private waiter: Waiter | null = null
   private started: Promise<void> | null = null
   private failure: Error | null = null
+  /** The `MultiPV` value the engine currently uses (UCI default 1). */
+  private multiPv = 1
 
   constructor(worker: WorkerLike, options: StockfishOptions = {}) {
     this.worker = worker
@@ -80,10 +82,10 @@ export class StockfishEngine implements Engine {
     })
   }
 
-  async analyse(fen: string, { depth, signal }: AnalyseOptions): Promise<EngineResult> {
+  async analyse(fen: string, { depth, multiPv = 1, signal }: AnalyseOptions): Promise<EngineResult> {
     if (signal?.aborted) throw abortError()
     await this.ready()
-    return this.enqueue(() => this.search(fen, depth, signal))
+    return this.enqueue(() => this.search(fen, depth, multiPv, signal))
   }
 
   /** Stops the worker. Pending and later calls reject. */
@@ -110,9 +112,10 @@ export class StockfishEngine implements Engine {
     }
   }
 
-  private async search(fen: string, depth: number, signal?: AbortSignal): Promise<EngineResult> {
+  private async search(fen: string, depth: number, multiPv: number, signal?: AbortSignal): Promise<EngineResult> {
     if (signal?.aborted) throw abortError()
-    let last: UciInfo | null = null
+    // Latest info per MultiPV index; a deeper iteration overwrites the earlier one.
+    const latest = new Map<number, UciInfo>()
     let aborted = false
     const onAbort = () => {
       aborted = true
@@ -120,13 +123,17 @@ export class StockfishEngine implements Engine {
     }
     signal?.addEventListener('abort', onAbort, { once: true })
     try {
+      if (multiPv !== this.multiPv) {
+        this.send(`setoption name MultiPV value ${multiPv}`)
+        this.multiPv = multiPv
+      }
       this.send(`position fen ${fen}`)
       this.send(`go depth ${depth}`)
       let bestMove: string | undefined
       await this.waitFor((line) => {
         const info = parseInfo(line)
         if (info) {
-          last = info
+          latest.set(info.multipv, info)
           return false
         }
         const best = parseBestMove(line)
@@ -135,9 +142,13 @@ export class StockfishEngine implements Engine {
         return true
       })
       if (aborted) throw abortError()
-      const final = last as UciInfo | null
+      const final = latest.get(1)
       if (!final) throw new Error(`Engine returned no evaluation for ${fen}`)
-      return { score: final.score, bestMove, pv: final.pv, depth: final.depth }
+      const lines: EngineLine[] = [...latest.values()]
+        .filter((info) => info.depth === final.depth && info.pv.length > 0)
+        .sort((a, b) => a.multipv - b.multipv)
+        .map((info) => ({ move: info.pv[0], score: info.score, pv: info.pv }))
+      return { score: final.score, bestMove, pv: final.pv, depth: final.depth, lines }
     } finally {
       signal?.removeEventListener('abort', onAbort)
     }

@@ -15,6 +15,7 @@ function foolsMate(): ImportedGame {
 /** Returns +40 cp for the side to move in every position. */
 class FakeEngine implements Engine {
   seen: string[] = []
+  options: AnalyseOptions[] = []
   newGames = 0
   onAnalyse?: (index: number) => void
 
@@ -22,11 +23,21 @@ class FakeEngine implements Engine {
     this.newGames++
   }
 
-  async analyse(fen: string, { signal }: AnalyseOptions): Promise<EngineResult> {
+  async analyse(fen: string, opts: AnalyseOptions): Promise<EngineResult> {
     this.onAnalyse?.(this.seen.length)
     this.seen.push(fen)
-    if (signal?.aborted) throw new DOMException('Analysis aborted', 'AbortError')
-    return { score: { type: 'cp', value: 40 }, bestMove: 'a2a3', pv: ['a2a3'], depth: 14 }
+    this.options.push(opts)
+    if (opts.signal?.aborted) throw new DOMException('Analysis aborted', 'AbortError')
+    return {
+      score: { type: 'cp', value: 40 },
+      bestMove: 'a2a3',
+      pv: ['a2a3'],
+      depth: 14,
+      lines: [
+        { move: 'a2a3', score: { type: 'cp', value: 40 }, pv: ['a2a3'] },
+        { move: 'h2h3', score: { type: 'cp', value: 10 }, pv: ['h2h3'] },
+      ],
+    }
   }
 }
 
@@ -64,7 +75,30 @@ describe('analyseGame', () => {
       eval: { kind: 'mate', in: 0, winner: 'b' },
       pv: [],
       depth: 0,
+      lines: [],
     })
+  })
+
+  it('asks for two lines by default and stores them in White POV', async () => {
+    const engine = new FakeEngine()
+    const analysis = await analyseGame(foolsMate(), engine)
+    expect(engine.options.every((o) => o.multiPv === 2)).toBe(true)
+    // Start position: White to move, kept as is.
+    expect(analysis.positions[0].lines).toEqual([
+      { move: 'a2a3', eval: { kind: 'cp', cp: 40 }, pv: ['a2a3'] },
+      { move: 'h2h3', eval: { kind: 'cp', cp: 10 }, pv: ['h2h3'] },
+    ])
+    // After 1.f3: Black to move, so +40 for the mover is -40 for White.
+    expect(analysis.positions[1].lines.map((l) => l.eval)).toEqual([
+      { kind: 'cp', cp: -40 },
+      { kind: 'cp', cp: -10 },
+    ])
+  })
+
+  it('passes a custom multiPv through', async () => {
+    const engine = new FakeEngine()
+    await analyseGame(foolsMate(), engine, { multiPv: 1 })
+    expect(engine.options.every((o) => o.multiPv === 1)).toBe(true)
   })
 
   it("flips Black-to-move scores to White's POV", async () => {
