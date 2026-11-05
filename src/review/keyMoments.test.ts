@@ -129,7 +129,10 @@ describe('findKeyMoments', () => {
 
     it('always flags a move classified miss, even below the win% bar', () => {
       const { moves, reviews, whiteWp } = base({ loss: 15, wpBefore: 55, cls: 'miss' })
-      expect(findKeyMoments(moves, reviews, whiteWp).find((m) => m.ply === 5)?.kinds).toEqual(['missed-tactic'])
+      const moment = findKeyMoments(moves, reviews, whiteWp).find((m) => m.ply === 5)
+      expect(moment?.kinds).toEqual(['missed-tactic'])
+      // The move's class is carried so the UI can label it "Miss".
+      expect(moment?.cls).toBe('miss')
     })
 
     it('keeps the loss-based kinds on a miss', () => {

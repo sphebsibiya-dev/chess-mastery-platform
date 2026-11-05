@@ -1,6 +1,6 @@
 import type { ImportedMove } from '../import/types'
 import type { KeyMoment } from '../review/keyMoments'
-import { momentText, timeTroubleText } from './analysisView'
+import { momentClass, momentText, timeTroubleText } from './analysisView'
 
 export interface TimeTroubleEntry {
   ply: number
@@ -23,7 +23,7 @@ export default function KeyMoments({ moments, trouble, moves, ply, onSelectPly }
   const items: Item[] = []
   for (const m of moments ?? []) {
     const move = moves[m.ply - 1]
-    if (move) items.push({ ply: m.ply, key: `m${m.ply}`, text: momentText(m, move), className: `moment-${m.kinds[0]}` })
+    if (move) items.push({ ply: m.ply, key: `m${m.ply}`, text: momentText(m, move), className: momentClass(m) })
   }
   for (const t of trouble) {
     const move = moves[t.ply - 1]

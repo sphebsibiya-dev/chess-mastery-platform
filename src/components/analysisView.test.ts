@@ -10,6 +10,8 @@ import {
   engineArrows,
   formatEval,
   graphValueText,
+  momentClass,
+  momentKindsText,
   momentText,
   moveClockText,
   moveLabel,
@@ -71,6 +73,26 @@ describe('key moment and clock text', () => {
     expect(momentText({ ...moment, kinds: ['missed-tactic'], bestMoveSan: undefined }, qxb2)).toBe(
       '23... Qxb2 · Missed tactic · White 52% → 18%',
     )
+  })
+
+  it('labels a move classed miss as "Miss", like the move list does', () => {
+    const moment: KeyMoment = {
+      ply: 47,
+      color: 'w',
+      kinds: ['blunder', 'missed-tactic', 'turning-point'],
+      cls: 'miss',
+      loss: 30,
+      whiteWpBefore: 80,
+      whiteWpAfter: 50,
+      bestMoveSan: 'Qxe4',
+    }
+    const qd3 = { moveNumber: 24, color: 'w' as const, san: 'Qd3' }
+    expect(momentText(moment, qd3)).toBe('24. Qd3 · Miss, turning point · White 80% → 50% · best Qxe4')
+    expect(momentText({ ...moment, kinds: ['missed-tactic'] }, qd3)).toBe('24. Qd3 · Miss · White 80% → 50% · best Qxe4')
+    expect(momentClass(moment)).toBe('moment-missed-tactic')
+    // Other classes keep the kind labels and the first kind's colour.
+    expect(momentKindsText(['blunder', 'missed-tactic'], 'blunder')).toBe('Blunder, missed tactic')
+    expect(momentClass({ kinds: ['blunder', 'missed-tactic'], cls: 'blunder' })).toBe('moment-blunder')
   })
 
   it('labels time badges', () => {

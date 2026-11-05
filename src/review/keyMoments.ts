@@ -10,6 +10,8 @@ export interface KeyMoment {
   color: 'w' | 'b'
   /** Every kind that applies to this ply, in `KIND_ORDER`. */
   kinds: KeyMomentKind[]
+  /** The move's own class (so a `miss` can be labelled as one). */
+  cls?: MoveClass
   /** Win% lost by the mover. */
   loss: number
   /** White's win% before and after the move (for "52% -> 18%"). */
@@ -112,6 +114,7 @@ export function findKeyMoments(
       ply: move.ply,
       color: move.color,
       kinds: KIND_ORDER.filter((k) => kinds.has(k)),
+      cls: review.cls,
       loss: review.loss,
       whiteWpBefore: whiteWp[i],
       whiteWpAfter: whiteWp[i + 1],

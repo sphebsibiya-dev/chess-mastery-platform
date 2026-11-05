@@ -74,10 +74,23 @@ export const MOMENT_KIND_LABELS: Record<KeyMomentKind, string> = {
   'turning-point': 'Turning point',
 }
 
-/** Kinds as one phrase: 'Blunder, turning point'. */
-export function momentKindsText(kinds: readonly KeyMomentKind[]): string {
-  const text = kinds.map((k) => MOMENT_KIND_LABELS[k].toLowerCase()).join(', ')
+/**
+ * Kinds as one phrase: 'Blunder, turning point'. A move classed `miss` leads
+ * with 'Miss' (its label in the move list) instead of 'blunder' / 'missed
+ * tactic', so both places use the same word: 'Miss, turning point'.
+ */
+export function momentKindsText(kinds: readonly KeyMomentKind[], cls?: MoveClass): string {
+  const isMiss = cls === 'miss'
+  const shown = isMiss ? kinds.filter((k) => k === 'turning-point') : kinds
+  const parts = shown.map((k) => MOMENT_KIND_LABELS[k].toLowerCase())
+  if (isMiss) parts.unshift(CLASS_INFO.miss.label)
+  const text = parts.join(', ')
   return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/** CSS modifier for a moment row: a miss uses the missed-tactic colour. */
+export function momentClass(moment: Pick<KeyMoment, 'kinds' | 'cls'>): string {
+  return `moment-${moment.cls === 'miss' ? 'missed-tactic' : moment.kinds[0]}`
 }
 
 /** 'White 52% → 18%' (White's win% before and after). */
@@ -87,7 +100,7 @@ export function momentSwingText(moment: Pick<KeyMoment, 'whiteWpBefore' | 'white
 
 /** '23... Qxb2 · Blunder, turning point · White 52% → 18% · best Rd1' */
 export function momentText(moment: KeyMoment, move: MoveRef): string {
-  const parts = [moveLabel(move), momentKindsText(moment.kinds), momentSwingText(moment)]
+  const parts = [moveLabel(move), momentKindsText(moment.kinds, moment.cls), momentSwingText(moment)]
   if (moment.bestMoveSan && moment.bestMoveSan !== move.san) parts.push(`best ${moment.bestMoveSan}`)
   return parts.join(' · ')
 }
