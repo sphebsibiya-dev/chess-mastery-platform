@@ -179,6 +179,50 @@ button.primary:hover { background: #46895a; }
 .move[aria-current='true']:hover:not(:disabled) { background: #3d7a4c; }
 .move-empty { color: #5b6560; cursor: default; display: flex; align-items: center; }
 .game-meta { font-size: 0.875rem; margin: 8px 0 0; }
+
+/* Move classification badges. Kept on one line with the SAN so rows never wrap. */
+.move { gap: 4px; white-space: nowrap; min-width: 0; }
+.move-san { overflow: hidden; text-overflow: ellipsis; }
+.badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  height: 1.35em;
+  padding: 0 3px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+}
+.badge-best { background: #2f8f46; }
+.badge-excellent { background: #5a9e3a; }
+.badge-good { background: #5d6b63; }
+.badge-inaccuracy { background: #c49a1a; color: #161b18; }
+.badge-mistake { background: #d9761e; }
+.badge-blunder { background: #c9372c; }
+.badge-forced { background: #4b5a75; }
+
+/* Engine analysis panel, under the nav controls */
+.analysis-panel {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #2c3530;
+  border-radius: 8px;
+  background: #1d2320;
+  display: grid;
+  gap: 6px;
+}
+.analysis-panel p { margin: 0; }
+.analysis-progress { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.analysis-progress progress { flex: 1 1 140px; min-width: 0; height: 10px; accent-color: #3d7a4c; }
+.analysis-error { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.analysis-error .error { margin: 0; flex: 1 1 180px; }
+.analysis-line { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+.analysis-eval { font: 600 1rem ui-monospace, SFMono-Regular, Consolas, monospace; min-width: 4.5em; }
+.analysis-review { display: flex; gap: 8px; align-items: center; overflow-wrap: anywhere; }
 .import-another { margin-top: 16px; }
 
 /* Tablet and up: board left, moves right */

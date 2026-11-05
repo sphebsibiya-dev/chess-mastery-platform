@@ -1,11 +1,15 @@
 import { useEffect, useRef } from 'react'
 import type { ImportedMove } from '../import/types'
+import type { MoveClass } from '../review/types'
+import ClassificationBadge from './ClassificationBadge'
 
 interface MoveListProps {
   moves: ImportedMove[]
   /** Current ply; 0 means the start position (no move highlighted). */
   ply: number
   onSelect: (ply: number) => void
+  /** Classification per move, indexed by `ply - 1`. */
+  classes?: readonly (MoveClass | undefined)[]
 }
 
 interface Row {
@@ -28,7 +32,7 @@ function toRows(moves: ImportedMove[]): Row[] {
   return rows
 }
 
-export default function MoveList({ moves, ply, onSelect }: MoveListProps) {
+export default function MoveList({ moves, ply, onSelect, classes }: MoveListProps) {
   const listRef = useRef<HTMLOListElement>(null)
 
   useEffect(() => {
@@ -47,19 +51,21 @@ export default function MoveList({ moves, ply, onSelect }: MoveListProps) {
     }
   }, [ply])
 
-  const cell = (move: ImportedMove | undefined) =>
-    move ? (
+  const cell = (move: ImportedMove | undefined) => {
+    if (!move) return <span className="move move-empty">…</span>
+    const cls = classes?.[move.ply - 1]
+    return (
       <button
         type="button"
         className="move"
         aria-current={move.ply === ply ? 'true' : undefined}
         onClick={() => onSelect(move.ply)}
       >
-        {move.san}
+        <span className="move-san">{move.san}</span>
+        {cls && <ClassificationBadge cls={cls} />}
       </button>
-    ) : (
-      <span className="move move-empty">…</span>
     )
+  }
 
   return (
     <ol className="move-list" ref={listRef} aria-label="Moves">
