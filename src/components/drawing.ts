@@ -16,6 +16,17 @@ export const DRAW_COLORS: Record<DrawColor, string> = {
   yellow: 'rgb(230, 180, 0)',
 }
 
+/**
+ * Live preview while right-dragging: same hue, more transparent, so it reads as "not placed yet".
+ * react-chessboard applies its own arrow opacity on top of this.
+ */
+export const PREVIEW_ARROW_COLORS: Record<DrawColor, string> = {
+  green: 'rgba(21, 120, 27, 0.45)',
+  red: 'rgba(214, 40, 40, 0.45)',
+  blue: 'rgba(36, 104, 214, 0.45)',
+  yellow: 'rgba(230, 180, 0, 0.45)',
+}
+
 /** Square highlight background per drawing colour (translucent so pieces stay readable). */
 export const HIGHLIGHT_COLORS: Record<DrawColor, string> = {
   green: 'rgba(21, 160, 40, 0.55)',
@@ -43,12 +54,32 @@ export type DrawingAction =
   | { type: 'toggleHighlight'; key: string; square: string; color: DrawColor }
   | { type: 'set'; key: string; arrows: DrawnArrow[]; highlights: Record<string, DrawColor> }
   | { type: 'clear' }
+  /** The board moved to position `key`: drop all drawings (they are never kept per position). */
+  | { type: 'reset'; key: string }
 
 export interface Modifiers {
   shiftKey: boolean
   ctrlKey: boolean
   altKey: boolean
   metaKey: boolean
+}
+
+/** Colour for code-driven drawings (coach mode, engine) when the caller doesn't pick one. */
+export const DEFAULT_DRAW_COLOR: DrawColor = 'green'
+
+// Action builders for the code API. They default to green, never to the user's swatch colour.
+export function arrowAction(key: string, from: string, to: string, color: DrawColor = DEFAULT_DRAW_COLOR): DrawingAction {
+  return { type: 'toggleArrow', key, from, to, color }
+}
+export function highlightAction(key: string, square: string, color: DrawColor = DEFAULT_DRAW_COLOR): DrawingAction {
+  return { type: 'toggleHighlight', key, square, color }
+}
+export function setAction(
+  key: string,
+  arrows: DrawnArrow[],
+  highlights: Record<string, DrawColor> = {},
+): DrawingAction {
+  return { type: 'set', key, arrows, highlights }
 }
 
 export function emptyDrawing(key: string): DrawingState {
@@ -63,16 +94,12 @@ export function colorFromModifiers(m: Modifiers): DrawColor {
   return 'green'
 }
 
-/** Drawings for another position are discarded before the action applies. */
-function forKey(s: DrawingState, key: string): DrawingState {
-  return s.key === key ? s : emptyDrawing(key)
-}
-
 export function drawingReducer(s: DrawingState, a: DrawingAction): DrawingState {
   switch (a.type) {
     case 'toggleArrow': {
-      if (a.from === a.to) return s
-      const base = forKey(s, a.key)
+      // Actions for a position the board is no longer on are stale (e.g. a late async caller): drop them.
+      if (a.key !== s.key || a.from === a.to) return s
+      const base = s
       const i = base.arrows.findIndex((x) => x.from === a.from && x.to === a.to)
       let arrows: DrawnArrow[]
       if (i === -1) {
@@ -85,17 +112,22 @@ export function drawingReducer(s: DrawingState, a: DrawingAction): DrawingState 
       return { ...base, arrows }
     }
     case 'toggleHighlight': {
-      const base = forKey(s, a.key)
+      if (a.key !== s.key) return s
+      const base = s
       const highlights = { ...base.highlights }
       if (highlights[a.square] === a.color) delete highlights[a.square]
       else highlights[a.square] = a.color
       return { ...base, highlights }
     }
     case 'set':
+      if (a.key !== s.key) return s
       return { key: a.key, arrows: [...a.arrows], highlights: { ...a.highlights } }
     case 'clear':
       if (s.arrows.length === 0 && Object.keys(s.highlights).length === 0) return s
       return emptyDrawing(s.key)
+    case 'reset':
+      if (s.key === a.key && s.arrows.length === 0 && Object.keys(s.highlights).length === 0) return s
+      return emptyDrawing(a.key)
   }
 }
 

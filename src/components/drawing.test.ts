@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { START_FEN } from '../chess/constants'
 import {
+  DEFAULT_DRAW_COLOR,
   DRAW_COLORS,
   HIGHLIGHT_COLORS,
+  PREVIEW_ARROW_COLORS,
+  arrowAction,
   colorFromModifiers,
   drawingReducer,
   emptyDrawing,
+  highlightAction,
   mergeArrows,
   mergeSquareStyles,
+  setAction,
   toArrows,
   toSquareStyles,
   visibleDrawing,
@@ -109,32 +114,72 @@ describe('drawingReducer: clear, set and position changes', () => {
     expect(drawingReducer(empty, { type: 'clear' })).toBe(empty)
   })
 
-  it('starts from empty when an action is for another position', () => {
+  it('reset drops all drawings and moves to the new position', () => {
     const a = highlight(arrow(empty, 'e2', 'e4'), 'd4')
-    const b = arrow(a, 'e7', 'e5', 'red', FEN_B)
-    expect(b.key).toBe(FEN_B)
-    expect(b.arrows).toEqual([{ from: 'e7', to: 'e5', color: 'red' }])
-    expect(b.highlights).toEqual({})
+    expect(drawingReducer(a, { type: 'reset', key: FEN_B })).toEqual(emptyDrawing(FEN_B))
   })
 
-  it('starts from empty when a highlight is for another position', () => {
-    const b = highlight(arrow(empty, 'e2', 'e4'), 'e5', 'blue', FEN_B)
-    expect(b).toEqual({ key: FEN_B, arrows: [], highlights: { e5: 'blue' } })
+  it('drawings do not come back after stepping away and back', () => {
+    const drawn = highlight(arrow(empty, 'e2', 'e4'), 'd4')
+    const away = drawingReducer(drawn, { type: 'reset', key: FEN_B })
+    const back = drawingReducer(away, { type: 'reset', key: FEN_A })
+    expect(back).toEqual(emptyDrawing(FEN_A))
+    expect(visibleDrawing(back, FEN_A).arrows).toEqual([])
+    expect(visibleDrawing(back, FEN_A).highlights).toEqual({})
   })
 
-  it('set replaces everything', () => {
+  it('reset to the same empty position returns the same reference', () => {
+    expect(drawingReducer(empty, { type: 'reset', key: FEN_A })).toBe(empty)
+  })
+
+  it('ignores arrows and highlights for a position the board has left', () => {
+    const a = highlight(arrow(empty, 'e2', 'e4'), 'd4')
+    expect(arrow(a, 'e7', 'e5', 'red', FEN_B)).toBe(a)
+    expect(highlight(a, 'e5', 'blue', FEN_B)).toBe(a)
+  })
+
+  it('set replaces everything for the current position', () => {
     const before = highlight(arrow(empty, 'e2', 'e4'), 'd4')
     const s = drawingReducer(before, {
       type: 'set',
-      key: FEN_B,
+      key: FEN_A,
       arrows: [{ from: 'g8', to: 'f6', color: 'blue' }],
       highlights: { f6: 'yellow' },
     })
     expect(s).toEqual({
-      key: FEN_B,
+      key: FEN_A,
       arrows: [{ from: 'g8', to: 'f6', color: 'blue' }],
       highlights: { f6: 'yellow' },
     })
+  })
+
+  it('a stale set (another position) does not wipe the current drawings', () => {
+    const current = arrow(empty, 'e2', 'e4')
+    const s = drawingReducer(current, setAction(FEN_B, [{ from: 'g8', to: 'f6', color: 'blue' }]))
+    expect(s).toBe(current)
+  })
+})
+
+describe('code API action builders', () => {
+  it('default to green, not a user-picked colour', () => {
+    expect(DEFAULT_DRAW_COLOR).toBe('green')
+    expect(arrowAction(FEN_A, 'e2', 'e4')).toEqual({ type: 'toggleArrow', key: FEN_A, from: 'e2', to: 'e4', color: 'green' })
+    expect(highlightAction(FEN_A, 'd4')).toEqual({ type: 'toggleHighlight', key: FEN_A, square: 'd4', color: 'green' })
+  })
+
+  it('use an explicit colour and position key', () => {
+    expect(arrowAction(FEN_B, 'e7', 'e5', 'red')).toEqual({ type: 'toggleArrow', key: FEN_B, from: 'e7', to: 'e5', color: 'red' })
+    expect(highlightAction(FEN_B, 'e5', 'blue')).toEqual({ type: 'toggleHighlight', key: FEN_B, square: 'e5', color: 'blue' })
+  })
+
+  it('setAction defaults highlights to none', () => {
+    expect(setAction(FEN_A, [])).toEqual({ type: 'set', key: FEN_A, arrows: [], highlights: {} })
+  })
+
+  it('apply to the matching position and are ignored for another one', () => {
+    const onA = drawingReducer(empty, arrowAction(FEN_A, 'e2', 'e4'))
+    expect(onA.arrows).toEqual([{ from: 'e2', to: 'e4', color: 'green' }])
+    expect(drawingReducer(onA, highlightAction(FEN_B, 'd4'))).toBe(onA)
   })
 })
 
@@ -163,10 +208,17 @@ describe('board conversion', () => {
     })
   })
 
-  it('every drawing colour has an arrow and a highlight colour', () => {
+  it('every drawing colour has an arrow, preview and highlight colour', () => {
     for (const c of ['green', 'red', 'blue', 'yellow'] as const) {
       expect(DRAW_COLORS[c]).toBeTruthy()
+      expect(PREVIEW_ARROW_COLORS[c]).toBeTruthy()
       expect(HIGHLIGHT_COLORS[c]).toBeTruthy()
+    }
+  })
+
+  it('the preview arrow colour differs from the finished arrow colour', () => {
+    for (const c of ['green', 'red', 'blue', 'yellow'] as const) {
+      expect(PREVIEW_ARROW_COLORS[c]).not.toBe(DRAW_COLORS[c])
     }
   })
 })
