@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { ImportedMove } from '../import/types'
 import type { MoveClass } from '../review/types'
+import type { TimeBadge } from './analysisView'
 import ClassificationBadge from './ClassificationBadge'
 
 interface MoveListProps {
@@ -10,6 +11,8 @@ interface MoveListProps {
   onSelect: (ply: number) => void
   /** Classification per move, indexed by `ply - 1`. */
   classes?: readonly (MoveClass | undefined)[]
+  /** Time-trouble badge per move, indexed by `ply - 1`. Omit for games without clocks. */
+  timeFlags?: readonly (TimeBadge | undefined)[]
 }
 
 interface Row {
@@ -32,7 +35,7 @@ function toRows(moves: ImportedMove[]): Row[] {
   return rows
 }
 
-export default function MoveList({ moves, ply, onSelect, classes }: MoveListProps) {
+export default function MoveList({ moves, ply, onSelect, classes, timeFlags }: MoveListProps) {
   const listRef = useRef<HTMLOListElement>(null)
 
   useEffect(() => {
@@ -54,6 +57,7 @@ export default function MoveList({ moves, ply, onSelect, classes }: MoveListProp
   const cell = (move: ImportedMove | undefined) => {
     if (!move) return <span className="move move-empty">…</span>
     const cls = classes?.[move.ply - 1]
+    const time = timeFlags?.[move.ply - 1]
     return (
       <button
         type="button"
@@ -63,6 +67,12 @@ export default function MoveList({ moves, ply, onSelect, classes }: MoveListProp
       >
         <span className="move-san">{move.san}</span>
         {cls && <ClassificationBadge cls={cls} />}
+        {time && (
+          <span className={`time-badge time-${time.flag}`} role="img" aria-label={time.label} title={time.label}>
+            {/* Stopwatch, forced to text presentation so it takes the badge colour. */}
+            {'⏱︎'}
+          </span>
+        )}
       </button>
     )
   }

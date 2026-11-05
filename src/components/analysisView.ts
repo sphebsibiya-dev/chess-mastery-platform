@@ -5,7 +5,7 @@ import type { ImportedMove } from '../import/types'
 import type { KeyMoment, KeyMomentKind } from '../review/keyMoments'
 import type { GameTimes, MoveTime, TimeFlag } from '../review/timeTrouble'
 import type { MoveClass } from '../review/types'
-import { formatClockSeconds, formatSpent } from './evalGraph'
+import { formatClockSeconds, formatSpent } from './evalGraphGeometry'
 
 /** Colour of the engine's best-move arrow. */
 export const ENGINE_ARROW_COLOR = 'rgba(46, 160, 67, 0.85)'

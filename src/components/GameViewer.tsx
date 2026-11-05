@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useReducer, type CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
 import type { ImportedGame } from '../import/types'
+import { findKeyMoments } from '../review/keyMoments'
+import { moveTimes } from '../review/timeTrouble'
+import { winPercent } from '../review/winProbability'
 import AnalysisPanel from './AnalysisPanel'
-import { engineArrows } from './analysisView'
+import { engineArrows, graphValueText, moveClockText, timeBadges } from './analysisView'
 import { mergeArrows, mergeSquareStyles } from './drawing'
 import DrawToolbar from './DrawToolbar'
+import EvalGraph from './EvalGraph'
+import type { TimeTroubleEntry } from './KeyMoments'
 import MoveList from './MoveList'
 import NavControls from './NavControls'
 import { navReducer, type NavAction } from './navigation'
@@ -59,7 +64,28 @@ export default function GameViewer({ game }: GameViewerProps) {
   const { ply } = nav
   // Engine best-move arrow; the user's drawings are merged on top of it below.
   const bestArrows = useMemo(() => engineArrows(analysis.positions, ply), [analysis.positions, ply])
-  const classes = analysis.state.status === 'done' ? analysis.state.reviews.map((r) => r.cls) : undefined
+  const reviews = analysis.state.status === 'done' ? analysis.state.reviews : undefined
+  const classes = reviews?.map((r) => r.cls)
+  const whiteWp = useMemo(() => analysis.positions.map((p) => winPercent(p.eval)), [analysis.positions])
+  const moments = useMemo(
+    () => (reviews ? findKeyMoments(game.moves, reviews, whiteWp) : undefined),
+    [game.moves, reviews, whiteWp],
+  )
+  // Clocks are known as soon as the game opens; too-fast flags need the reviews.
+  const times = useMemo(() => moveTimes(game, reviews), [game, reviews])
+  const timeFlags = useMemo(
+    () => (times.hasClocks ? timeBadges(times, game.moves) : undefined),
+    [times, game.moves],
+  )
+  const trouble = useMemo(() => {
+    const entries: TimeTroubleEntry[] = []
+    for (const start of [times.troubleStart.w, times.troubleStart.b]) {
+      const clock = start !== undefined ? times.moves[start - 1]?.clockSeconds : undefined
+      if (start !== undefined && clock !== undefined) entries.push({ ply: start, clockSeconds: clock })
+    }
+    return entries
+  }, [times])
+  const selectPly = useCallback((p: number) => dispatch({ type: 'goto', ply: p }), [])
   const current = ply > 0 ? game.moves[ply - 1] : undefined
   const position = current ? current.fenAfter : game.startFen
   const squareStyles: Record<string, CSSProperties> = current
@@ -106,7 +132,26 @@ export default function GameViewer({ game }: GameViewerProps) {
           canClear={drawing.hasDrawings}
           onClear={drawing.clear}
         />
-        <AnalysisPanel analysis={analysis} game={game} ply={ply} />
+        {game.moves.length > 0 && analysis.state.status !== 'error' && (
+          <EvalGraph
+            whiteWp={whiteWp}
+            totalPlies={game.moves.length}
+            ply={ply}
+            moments={moments ?? []}
+            onSelectPly={selectPly}
+            valueText={graphValueText(current, analysis.positions[ply]?.eval)}
+            pending={analysis.state.status !== 'done'}
+          />
+        )}
+        <AnalysisPanel
+          analysis={analysis}
+          game={game}
+          ply={ply}
+          moments={moments}
+          trouble={trouble}
+          clockText={times.hasClocks ? moveClockText(times.moves[ply - 1]) : undefined}
+          onSelectPly={selectPly}
+        />
         {/* Below the controls so a long comment never moves the buttons. */}
         <p className="move-comment" aria-live="polite">
           {current?.comment ?? ''}
@@ -117,8 +162,9 @@ export default function GameViewer({ game }: GameViewerProps) {
           <MoveList
             moves={game.moves}
             ply={ply}
-            onSelect={(p) => dispatch({ type: 'goto', ply: p })}
+            onSelect={selectPly}
             classes={classes}
+            timeFlags={timeFlags}
           />
         ) : (
           <p className="muted">No moves.</p>

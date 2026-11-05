@@ -121,7 +121,7 @@ export function moveTimes(
   const medianSpent: GameTimes['medianSpent'] = {}
   for (const color of ['w', 'b'] as const) {
     const spent = moves
-      .filter((t, i) => game.moves[i].color === color && game.moves[i].moveNumber > TOO_FAST_AFTER_MOVE)
+      .filter((_, i) => game.moves[i].color === color && game.moves[i].moveNumber > TOO_FAST_AFTER_MOVE)
       .map((t) => t.spentSeconds)
       .filter((s): s is number => s !== undefined)
     if (spent.length >= MIN_TIMED_MOVES_FOR_MEDIAN) medianSpent[color] = median(spent)

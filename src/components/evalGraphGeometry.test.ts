@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatClockSeconds, formatSpent, graphLinePath, graphPath, plyFromX, plyX, wpY } from './evalGraph'
+import { formatClockSeconds, formatSpent, graphLinePath, graphPath, plyFromX, plyX, wpY } from './evalGraphGeometry'
 
 describe('plyFromX', () => {
   it.each([

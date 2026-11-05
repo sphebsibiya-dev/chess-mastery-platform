@@ -224,6 +224,89 @@ button.primary:hover { background: #46895a; }
 .analysis-eval { font: 600 1rem ui-monospace, SFMono-Regular, Consolas, monospace; min-width: 4.5em; }
 .analysis-review { display: flex; gap: 8px; align-items: center; overflow-wrap: anywhere; }
 .import-another { margin-top: 16px; }
+.analysis-clock { font-size: 0.875rem; }
+
+/* Evaluation graph: stretches to the column, fixed height. */
+.eval-graph-wrap { margin-top: 10px; }
+.eval-graph {
+  position: relative;
+  height: 72px;
+  border: 1px solid #2c3530;
+  border-radius: 8px;
+  background: #2b2f2d; /* Black's share */
+  overflow: hidden;
+  cursor: pointer;
+  /* Horizontal drags scrub the graph; vertical swipes still scroll the page. */
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.eval-graph:focus-visible { outline: 2px solid #7fc48f; outline-offset: 2px; }
+.eval-graph svg { display: block; width: 100%; height: 100%; }
+.eval-graph-area { fill: #dfe5e1; } /* White's share */
+.eval-graph-line { fill: none; stroke: #9aa69f; stroke-width: 1; }
+.eval-graph-mid { stroke: #7c8781; stroke-width: 1; stroke-dasharray: 3 3; }
+.eval-graph-marker { stroke: #3d9a57; stroke-width: 2; }
+.eval-graph-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  border: 1px solid #161b18;
+  pointer-events: none;
+}
+.eval-graph-dot.legend { position: static; display: inline-block; margin: 0; vertical-align: middle; }
+.dot-blunder { background: #c9372c; }
+.dot-missed-tactic { background: #e0a526; }
+.dot-turning-point { background: #4f8fd6; }
+.eval-graph-pending {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  pointer-events: none;
+}
+.eval-graph-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 4px 0 0; font-size: 0.75rem; }
+
+/* Key moments list inside the analysis panel */
+.key-moments h3 { font-size: 0.9375rem; margin: 6px 0 4px; }
+.key-moments ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.key-moments p { font-size: 0.875rem; }
+.moment {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  min-height: 44px;
+  padding: 6px 10px;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+  border-left-width: 4px;
+}
+.moment-blunder { border-left-color: #c9372c; }
+.moment-missed-tactic { border-left-color: #e0a526; }
+.moment-turning-point { border-left-color: #4f8fd6; }
+.moment-time { border-left-color: #b06ad0; }
+.moment[aria-current='true'],
+.moment[aria-current='true']:hover:not(:disabled) { background: #2f4a37; border-color: #7fc48f; }
+
+/* Time-trouble badge in the move list */
+.time-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35em;
+  height: 1.35em;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: #fff;
+}
+.time-low-clock { background: #b06ad0; }
+.time-too-fast { background: #8a6d1e; }
 
 /* Tablet and up: board left, moves right */
 @media (min-width: 768px) {
