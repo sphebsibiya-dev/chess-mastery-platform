@@ -1,8 +1,16 @@
 import { Chess } from 'chess.js'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { parsePgn } from '../../import/pgn'
 import type { ImportedGame } from '../../import/types'
-import { bookPrefix, loadOpeningBook, parseBook, positionKey, type OpeningBook } from './book'
+import {
+  bookPrefix,
+  createBookLoader,
+  loadOpeningBook,
+  loadOpeningBookOrNone,
+  parseBook,
+  positionKey,
+  type OpeningBook,
+} from './book'
 
 function game(pgn: string): ImportedGame {
   const result = parsePgn(pgn)
@@ -46,6 +54,41 @@ describe('parseBook', () => {
 
   it('rejects an index outside the name table', () => {
     expect(() => parseBook('00Alpha\tA00', '00abc w -\t5')).toThrow()
+  })
+})
+
+describe('createBookLoader', () => {
+  const DATA = { OPENING_NAMES: '00Alpha\tA00', OPENING_POSITIONS: '00abc w -\t0' }
+
+  it('does not memoise a failed load, so the next call retries', async () => {
+    const importData = vi
+      .fn<() => Promise<typeof DATA>>()
+      .mockRejectedValueOnce(new Error('chunk failed'))
+      .mockResolvedValue(DATA)
+    const load = createBookLoader(importData)
+    await expect(load()).rejects.toThrow('chunk failed')
+    const loaded = await load()
+    expect(loaded.get('abc w -')).toEqual({ eco: 'A00', name: 'Alpha' })
+    expect(await load()).toBe(loaded)
+    expect(importData).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('loadOpeningBookOrNone', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('falls back to no book with a console warning when loading fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const result = await loadOpeningBookOrNone(() => Promise.reject(new Error('chunk failed')))
+    expect(result).toBeUndefined()
+    expect(warn).toHaveBeenCalledOnce()
+    expect(String(warn.mock.calls[0][0])).toMatch(/opening book/i)
+  })
+
+  it('returns the book when loading works', async () => {
+    expect(await loadOpeningBookOrNone()).toBe(book)
   })
 })
 

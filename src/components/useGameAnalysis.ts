@@ -5,7 +5,7 @@ import { createStockfishWorker, StockfishEngine } from '../engine/stockfish'
 import type { GameAnalysis, PositionAnalysis } from '../engine/types'
 import type { ImportedGame } from '../import/types'
 import { classifyGame } from '../review/classify'
-import { loadOpeningBook, type Opening, type OpeningBook } from '../review/openings/book'
+import { loadOpeningBookOrNone, type Opening } from '../review/openings/book'
 import type { MoveReview, SideAccuracy } from '../review/types'
 
 export type AnalysisState =
@@ -59,8 +59,8 @@ export function useGameAnalysis(game: ImportedGame, depth = DEFAULT_DEPTH): Game
 
     const total = game.moves.length + 1
     // The opening book is a lazy chunk; load it while the engine works. If it
-    // fails, the review simply has no book moves.
-    const bookPromise: Promise<OpeningBook | undefined> = loadOpeningBook().catch(() => undefined)
+    // fails, the review simply has no book moves (and a console warning).
+    const bookPromise = loadOpeningBookOrNone()
     engine
       .ready()
       .then(() => {

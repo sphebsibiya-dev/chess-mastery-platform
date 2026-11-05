@@ -63,23 +63,51 @@ export function parseBook(names: string, positions: string): Map<string, Opening
   return book
 }
 
-let loading: Promise<OpeningBook> | null = null
+/** The generated data module's exports. */
+export interface BookData {
+  OPENING_NAMES: string
+  OPENING_POSITIONS: string
+}
+
+/**
+ * Makes a memoised book loader around `importData`. A failed load is not
+ * memoised, so the next call tries again.
+ */
+export function createBookLoader(importData: () => Promise<BookData>): () => Promise<OpeningBook> {
+  let loading: Promise<OpeningBook> | null = null
+  return () => {
+    if (!loading) {
+      const attempt = importData().then(({ OPENING_NAMES, OPENING_POSITIONS }) =>
+        parseBook(OPENING_NAMES, OPENING_POSITIONS),
+      )
+      loading = attempt
+      attempt.catch(() => {
+        if (loading === attempt) loading = null
+      })
+    }
+    return loading
+  }
+}
 
 /**
  * Loads the bundled opening book. The data is a separate, lazily loaded chunk
  * (no network request beyond our own bundle); the result is memoised.
  */
-export function loadOpeningBook(): Promise<OpeningBook> {
-  if (!loading) {
-    loading = import('./openings.generated').then(({ OPENING_NAMES, OPENING_POSITIONS }) =>
-      parseBook(OPENING_NAMES, OPENING_POSITIONS),
-    )
-    // Allow a retry if the chunk failed to load.
-    loading.catch(() => {
-      loading = null
-    })
+export const loadOpeningBook: () => Promise<OpeningBook> = createBookLoader(() => import('./openings.generated'))
+
+/**
+ * Loads the book for a review, or resolves to undefined (with a console warning)
+ * if it cannot be loaded, so the review simply has no book moves.
+ */
+export async function loadOpeningBookOrNone(
+  load: () => Promise<OpeningBook> = loadOpeningBook,
+): Promise<OpeningBook | undefined> {
+  try {
+    return await load()
+  } catch (err) {
+    console.warn('Opening book failed to load; reviewing without book moves.', err)
+    return undefined
   }
-  return loading
 }
 
 export interface BookPrefix {
