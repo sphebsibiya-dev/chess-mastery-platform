@@ -124,6 +124,18 @@ describe('analyseGame', () => {
     ])
   })
 
+  it('does not re-search when the played best move was the only legal move (it is forced)', async () => {
+    const parsed = parsePgn('[SetUp "1"]\n[FEN "7k/8/8/8/8/8/6q1/7K w - - 0 1"]\n\n1. Kxg2 *')
+    if (!parsed.ok) throw new Error(parsed.error)
+    const game = parsed.games[0]
+    const engine = new FakeEngine()
+    engine.best.set(game.startFen, 'h1g2')
+    const analysis = await analyseGame(game, engine)
+    // Only the start position is searched (K v K after the move is a draw), once.
+    expect(engine.options.map((o) => o.multiPv)).toEqual([1])
+    expect(analysis.positions[0].lines).toHaveLength(1)
+  })
+
   it('keeps one line where the played move was not the best move', async () => {
     const analysis = await analyseGame(foolsMate(), new FakeEngine())
     expect(analysis.positions[0].lines).toEqual([{ move: 'a2a3', eval: { kind: 'cp', cp: 40 }, pv: ['a2a3'] }])

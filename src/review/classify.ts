@@ -141,8 +141,8 @@ function isRecapture(lan: string, prevMove: ClassifyInput['prevMove']): boolean 
  *    move) that gives up at least `BRILLIANT_MIN_SACRIFICE` points along the
  *    engine line, leaves the mover at >= `BRILLIANT_MIN_WP_AFTER` and was not
  *    played from an already winning position.
- * 4. `great`: the engine's top move when the second line is at least
- *    `GREAT_MIN_GAP` worse (the only good move), not already winning, and not a
+ * 4. `great`: the played move's engine line is at least `GREAT_MIN_GAP` better
+ *    than the best other line (the only good move), not already winning, and not a
  *    recapture on the square the opponent just captured on (those are nearly
  *    always the only good move and would make Great meaningless).
  * 5. `best`: the engine's best move (even if eval noise shows a small loss).
@@ -177,9 +177,16 @@ export function classifyMove({
   }
 
   const great = (): boolean => {
-    if (!notWinning || !lines || lines.length < 2 || lines[0].move !== move.lan) return false
-    const gap = moverWinPercent(lines[0].eval, move.color) - moverWinPercent(lines[1].eval, move.color)
-    return gap >= GREAT_MIN_GAP && !isRecapture(move.lan, prevMove)
+    if (!notWinning || !lines) return false
+    // Compare the played move's line with the best other line, without assuming
+    // lines[0] is the played move: the two-line re-search can rank the top
+    // moves differently from the first search.
+    const played = lines.find((l) => l.move === move.lan)
+    const others = lines.filter((l) => l.move !== move.lan)
+    if (!played || others.length === 0) return false
+    const playedWp = moverWinPercent(played.eval, move.color)
+    const bestOtherWp = Math.max(...others.map((l) => moverWinPercent(l.eval, move.color)))
+    return playedWp - bestOtherWp >= GREAT_MIN_GAP && !isRecapture(move.lan, prevMove)
   }
 
   const miss = (): boolean =>

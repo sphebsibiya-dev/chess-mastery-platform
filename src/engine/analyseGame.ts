@@ -1,3 +1,4 @@
+import { Chess } from 'chess.js'
 import type { ImportedGame } from '../import/types'
 import { sideToMove, terminalEval, toWhitePov, type Color } from './evaluate'
 import { abortError } from './abort'
@@ -36,7 +37,8 @@ const toLines = (lines: EngineLine[], stm: Color): AnalysisLine[] =>
  * scored with chess.js and never sent to the engine. Every eval is returned from
  * White's POV.
  *
- * When the move actually played from a position is the engine's best move, that
+ * When the move actually played from a position is the engine's best move and
+ * there was more than one legal move (otherwise the move is `forced`), that
  * position is searched again right away with `GREAT_CHECK_MULTI_PV` lines at the
  * same depth (the hash from the first search makes this cheaper) and its `lines`
  * are replaced by the result. `eval`, `bestMove`, `pv` and `depth` always come
@@ -63,13 +65,17 @@ export async function analyseGame(
       const stm = sideToMove(fen)
       let lines = toLines(result.lines, stm)
       const played = game.moves[i]?.lan
-      if (played !== undefined && played === result.bestMove) {
+      const evalWhite = toWhitePov(result.score, stm)
+      // A move with no alternative is `forced`, so it never needs line 2.
+      const needsLine2 =
+        played !== undefined && played === result.bestMove && new Chess(fen).moves().length > 1
+      if (needsLine2) {
         const multi = await engine.analyse(fen, { depth, multiPv: GREAT_CHECK_MULTI_PV, signal })
         lines = toLines(multi.lines, stm)
       }
       positions.push({
         fen,
-        eval: toWhitePov(result.score, stm),
+        eval: evalWhite,
         bestMove: result.bestMove,
         pv: result.pv,
         depth: result.depth,

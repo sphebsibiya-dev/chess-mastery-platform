@@ -377,6 +377,30 @@ describe('great', () => {
     expect(classifyMove({ move: white, before: cp(200), after: cp(200), bestMove: 'e2e4', lines }).cls).toBe('best')
   })
 
+  it('finds the played move in the lines even if the re-search ranked it second', () => {
+    // First search said e4 was best (so line 2 was searched), but the re-search put d4 on top by a hair.
+    const lines = [line('d2d4', cp(210)), line('e2e4', cp(200))]
+    const r = classifyMove({ move: white, before: cp(200), after: cp(200), bestMove: 'e2e4', lines })
+    expect(r.cls).toBe('best') // gap is negative: not the only good move
+
+    // With a third, much worse line it is still compared with the best *other* line (d4), not lines[1].
+    const three = [line('d2d4', cp(210)), line('e2e4', cp(200)), line('c2c4', cp(-300))]
+    expect(classifyMove({ move: white, before: cp(200), after: cp(200), bestMove: 'e2e4', lines: three }).cls).toBe(
+      'best',
+    )
+  })
+
+  it('is great when the played move is line 2 by noise but far ahead of every other line', () => {
+    // Re-search lists another move first; it is still the played move vs the best other line.
+    const lines = [line('d2d4', cp(-100)), line('e2e4', cp(200))]
+    expect(classifyMove({ move: white, before: cp(200), after: cp(200), bestMove: 'e2e4', lines }).cls).toBe('great')
+  })
+
+  it('is not great when the played move is missing from the lines', () => {
+    const lines = [line('d2d4', cp(200)), line('c2c4', cp(-100))]
+    expect(classifyMove({ move: white, before: cp(200), after: cp(200), bestMove: 'e2e4', lines }).cls).toBe('best')
+  })
+
   it('needs the played move to be the top line', () => {
     const lines = [line('d2d4', cp(200)), line('e2e4', cp(-100))]
     const r = classifyMove({ move: white, before: cp(200), after: cp(200), bestMove: 'd2d4', lines })
