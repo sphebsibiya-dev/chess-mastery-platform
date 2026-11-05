@@ -13,7 +13,7 @@ export default function App() {
     setGame(next)
   }
 
-  const hasMoreGames = (session?.games.length ?? 0) > 1 || session?.online !== undefined
+  const hasMoreGames = (session?.games.length ?? 0) > 1 || (session !== null && session.tab !== 'pgn')
 
   return (
     <div className="app">

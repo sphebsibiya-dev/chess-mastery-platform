@@ -5,21 +5,34 @@ import { RUY_LOPEZ } from '../import/fixtures'
 import { createLichessSource } from '../import/lichess'
 import { parsePgn } from '../import/pgn'
 import type { GameSource, ImportedGame, OnlineSourceId } from '../import/types'
-import UsernameImport, { type OnlineSession } from './UsernameImport'
+import UsernameImport, { type OnlineSession, type UsernameDraft } from './UsernameImport'
 
 export type { OnlineSession }
 
-/** The last successful import, kept by the parent so the user can come back to it. */
-export interface ImportSession {
+export type TabId = 'pgn' | OnlineSourceId
+
+/** The PGN tab's last successful parse. */
+interface PgnLoad {
   text: string
   games: ImportedGame[]
   /** e.g. "1 game could not be read and was skipped." */
   notice: string | null
-  /** Set when the game was opened from an online list; "back" restores that list. */
-  online?: OnlineSession
 }
 
-type TabId = 'pgn' | OnlineSourceId
+/**
+ * Everything the import panel had when a game was opened, kept by the parent so
+ * "back" restores the paste, every source's list and the tab the game came from.
+ */
+export interface ImportSession extends PgnLoad {
+  /** The tab the open game came from. */
+  tab: TabId
+  /** One list per online source. */
+  online: Partial<Record<OnlineSourceId, OnlineSession>>
+  /** Username and error per online source. */
+  drafts: Partial<Record<OnlineSourceId, UsernameDraft>>
+}
+
+const EMPTY_DRAFT: UsernameDraft = { username: '', error: null }
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'pgn', label: 'PGN' },
@@ -69,16 +82,27 @@ export default function ImportPanel({ session, onGame }: ImportPanelProps) {
   const fileId = useId()
   const [text, setText] = useState(session?.text ?? '')
   const [error, setError] = useState<ErrorState | null>(null)
-  const [loaded, setLoaded] = useState<ImportSession | null>(session && { ...session, online: undefined })
+  const [loaded, setLoaded] = useState<PgnLoad | null>(
+    session && session.games.length > 0 ? { text: session.text, games: session.games, notice: session.notice } : null,
+  )
   const choices = loaded && loaded.games.length > 1 ? loaded.games : null
   const tabsId = useId()
-  const [tab, setTab] = useState<TabId>(session?.online?.source ?? 'pgn')
-  const [online, setOnline] = useState<Partial<Record<OnlineSourceId, OnlineSession>>>(
-    session?.online ? { [session.online.source]: session.online } : {},
-  )
+  const [tab, setTab] = useState<TabId>(session?.tab ?? 'pgn')
+  const [online, setOnline] = useState<ImportSession['online']>(session?.online ?? {})
+  const [drafts, setDrafts] = useState<ImportSession['drafts']>(session?.drafts ?? {})
 
-  const openOnline = (game: ImportedGame, state: OnlineSession) => {
-    onGame(game, { text, games: loaded?.games ?? [], notice: null, online: state })
+  const snapshot = (from: TabId, pgn: PgnLoad | null): ImportSession => ({
+    text: pgn?.text ?? text,
+    games: pgn?.games ?? [],
+    notice: from === 'pgn' ? (pgn?.notice ?? null) : null,
+    tab: from,
+    online,
+    drafts,
+  })
+
+  const openOnline = (from: OnlineSourceId, game: ImportedGame) => {
+    // Keep the textarea as typed, but don't carry a PGN notice into an online game.
+    onGame(game, { ...snapshot(from, loaded), text })
   }
 
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -102,9 +126,9 @@ export default function ImportPanel({ session, onGame }: ImportPanelProps) {
       return
     }
     setError(null)
-    const next: ImportSession = { text: pgn, games: result.games, notice: skippedNotice(result.skipped.length) }
+    const next: PgnLoad = { text: pgn, games: result.games, notice: skippedNotice(result.skipped.length) }
     setLoaded(next)
-    if (result.games.length === 1) onGame(result.games[0], next)
+    if (result.games.length === 1) onGame(result.games[0], snapshot('pgn', next))
   }
 
   const onSubmit = (event: FormEvent) => {
@@ -207,7 +231,7 @@ export default function ImportPanel({ session, onGame }: ImportPanelProps) {
                 <ul>
                   {choices.map((game, i) => (
                     <li key={`${game.id}-${i}`}>
-                      <button type="button" onClick={() => onGame(game, loaded)}>
+                      <button type="button" onClick={() => onGame(game, snapshot('pgn', loaded))}>
                         {describeGame(game)}
                       </button>
                     </li>
@@ -220,9 +244,11 @@ export default function ImportPanel({ session, onGame }: ImportPanelProps) {
           <UsernameImport
             key={tab}
             source={getSources()[tab]}
-            state={online[tab]}
-            onStateChange={(update) => setOnline((prev) => ({ ...prev, [tab]: update(prev[tab]) }))}
-            onOpen={openOnline}
+            list={online[tab]}
+            onListChange={(update) => setOnline((prev) => ({ ...prev, [tab]: update(prev[tab]) }))}
+            draft={drafts[tab] ?? EMPTY_DRAFT}
+            onDraftChange={(update) => setDrafts((prev) => ({ ...prev, [tab]: { ...EMPTY_DRAFT, ...prev[tab], ...update } }))}
+            onOpen={(game) => openOnline(tab, game)}
           />
         )}
       </div>

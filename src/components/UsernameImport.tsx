@@ -1,36 +1,28 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { isAbortError } from '../import/http'
+import { LIST_CHUNK, listHeading, mergePage, type OnlineSession } from '../import/onlineSession'
 import { summaryToGame } from '../import/summary'
 import { TIME_CLASS_LABELS, filterByTimeClass, presentTimeClasses } from '../import/timeControl'
-import {
-  SourceError,
-  type GameSource,
-  type GameSummary,
-  type ImportedGame,
-  type OnlineSourceId,
-  type TimeClass,
-} from '../import/types'
+import { SourceError, type GameSource, type GameSummary, type ImportedGame } from '../import/types'
 import GameList from './GameList'
 
-/** A loaded online game list, kept by the parent so "back" restores it. */
-export interface OnlineSession {
-  source: OnlineSourceId
+export type { OnlineSession }
+
+/** What the user typed and the last error, kept by the parent so switching tabs keeps them. */
+export interface UsernameDraft {
   username: string
-  games: GameSummary[]
-  cursor?: string
-  hasMore: boolean
-  filter: TimeClass | 'all'
-  /** Games left out so far (variants, aborted games). */
-  skipped: number
+  error: string | null
 }
 
 interface UsernameImportProps {
   source: GameSource
   /** The list for this source, if one was loaded before. */
-  state: OnlineSession | undefined
+  list: OnlineSession | undefined
   /** Functional update, so a slow fetch never overwrites newer changes (e.g. the filter). */
-  onStateChange: (update: (prev: OnlineSession | undefined) => OnlineSession | undefined) => void
-  onOpen: (game: ImportedGame, state: OnlineSession) => void
+  onListChange: (update: (prev: OnlineSession | undefined) => OnlineSession | undefined) => void
+  draft: UsernameDraft
+  onDraftChange: (update: Partial<UsernameDraft>) => void
+  onOpen: (game: ImportedGame) => void
 }
 
 function skippedNote(count: number): string | null {
@@ -44,12 +36,11 @@ function errorMessage(err: unknown): string {
 }
 
 /** Username form plus game list for one online source. Knows nothing source-specific. */
-export default function UsernameImport({ source, state, onStateChange, onOpen }: UsernameImportProps) {
+export default function UsernameImport({ source, list, onListChange, draft, onDraftChange, onOpen }: UsernameImportProps) {
   const inputId = useId()
   const errorId = `${inputId}-error`
-  const [username, setUsername] = useState(state?.username ?? '')
+  const { username, error } = draft
   const [loading, setLoading] = useState<'first' | 'more' | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const controller = useRef<AbortController | null>(null)
 
   const cancel = () => {
@@ -64,32 +55,19 @@ export default function UsernameImport({ source, state, onStateChange, onOpen }:
     const ctrl = new AbortController()
     controller.current = ctrl
     setLoading(kind)
-    setError(null)
-    const name = kind === 'more' && state ? state.username : username.trim()
+    onDraftChange({ error: null })
+    const name = kind === 'more' && list ? list.username : username.trim()
     try {
       const page = await source.fetchGames(name, {
         signal: ctrl.signal,
-        cursor: kind === 'more' ? state?.cursor : undefined,
+        cursor: kind === 'more' ? list?.cursor : undefined,
       })
       if (ctrl.signal.aborted) return
-      onStateChange((prev) => {
-        const base: OnlineSession =
-          kind === 'more' && prev
-            ? prev
-            : { source: source.id, username: name, games: [], hasMore: false, filter: 'all', skipped: 0 }
-        const seen = new Set(base.games.map((g) => g.id))
-        return {
-          ...base,
-          games: [...base.games, ...page.games.filter((g) => !seen.has(g.id))],
-          hasMore: page.hasMore,
-          cursor: page.cursor,
-          skipped: base.skipped + page.skipped,
-        }
-      })
+      onListChange((prev) => mergePage(kind === 'more' ? prev : undefined, page, { source: source.id, username: name }))
     } catch (err) {
       if (isAbortError(err) || ctrl.signal.aborted) return
-      setError(errorMessage(err))
-      if (kind === 'first') onStateChange(() => undefined)
+      onDraftChange({ error: errorMessage(err) })
+      if (kind === 'first') onListChange(() => undefined)
     } finally {
       if (controller.current === ctrl) {
         controller.current = null
@@ -102,14 +80,14 @@ export default function UsernameImport({ source, state, onStateChange, onOpen }:
     event.preventDefault()
     const invalid = source.validateUsername(username)
     if (invalid) {
-      setError(invalid)
+      onDraftChange({ error: invalid })
       return
     }
     void run('first')
   }
 
   const onUsernameChange = (value: string) => {
-    setUsername(value)
+    onDraftChange({ username: value })
     // A new name makes any in-flight request for the old one pointless.
     if (controller.current) {
       cancel()
@@ -118,18 +96,19 @@ export default function UsernameImport({ source, state, onStateChange, onOpen }:
   }
 
   const pick = (summary: GameSummary) => {
-    if (!state) return
     try {
-      onOpen(summaryToGame(summary), state)
+      onOpen(summaryToGame(summary))
     } catch (err) {
-      setError(err instanceof Error ? `Couldn't open this game: ${err.message}` : "Couldn't open this game.")
+      onDraftChange({ error: err instanceof Error ? `Couldn't open this game: ${err.message}` : "Couldn't open this game." })
     }
   }
 
-  const classes = state ? presentTimeClasses(state.games) : []
-  const filter = state && (state.filter === 'all' || classes.includes(state.filter)) ? state.filter : 'all'
-  const shown = state ? filterByTimeClass(state.games, filter) : []
-  const note = state ? skippedNote(state.skipped) : null
+  const classes = list ? presentTimeClasses(list.games) : []
+  const filter = list && (list.filter === 'all' || classes.includes(list.filter)) ? list.filter : 'all'
+  const shown = list ? filterByTimeClass(list.games, filter) : []
+  const visible = list ? shown.slice(0, Math.max(list.visible, LIST_CHUNK)) : []
+  const hidden = shown.length - visible.length
+  const note = list ? skippedNote(list.skipped) : null
 
   return (
     <div className="username-import">
@@ -168,13 +147,9 @@ export default function UsernameImport({ source, state, onStateChange, onOpen }:
         </p>
       )}
 
-      {state && loading !== 'first' && (
+      {list && loading !== 'first' && (
         <div className="online-results">
-          <h2>
-            {state.games.length === 0
-              ? `No games found for ${state.username}.`
-              : `${state.games.length} game${state.games.length === 1 ? '' : 's'} for ${state.username}`}
-          </h2>
+          <h2 aria-live="polite">{listHeading({ ...list, filter }, shown.length)}</h2>
           {note && <p className="notice">{note}</p>}
 
           {classes.length > 1 && (
@@ -185,7 +160,7 @@ export default function UsernameImport({ source, state, onStateChange, onOpen }:
                   type="button"
                   className="chip"
                   aria-pressed={filter === c}
-                  onClick={() => onStateChange((prev) => (prev ? { ...prev, filter: c } : prev))}
+                  onClick={() => onListChange((prev) => (prev ? { ...prev, filter: c, visible: LIST_CHUNK } : prev))}
                 >
                   {c === 'all' ? 'All' : TIME_CLASS_LABELS[c]}
                 </button>
@@ -193,16 +168,23 @@ export default function UsernameImport({ source, state, onStateChange, onOpen }:
             </div>
           )}
 
-          {shown.length > 0 ? (
-            <GameList games={shown} onPick={pick} />
-          ) : (
-            state.games.length > 0 && <p className="muted">No {filter} games loaded yet.</p>
-          )}
+          {/* The filter only offers classes that are present, so a non-empty list always shows rows. */}
+          {visible.length > 0 && <GameList games={visible} onPick={pick} />}
 
-          {state.hasMore && (
-            <button type="button" className="load-more" onClick={() => void run('more')} disabled={loading === 'more'}>
-              {loading === 'more' ? 'Loading…' : 'Load older games'}
+          {hidden > 0 ? (
+            <button
+              type="button"
+              className="load-more"
+              onClick={() => onListChange((prev) => (prev ? { ...prev, visible: Math.max(prev.visible, LIST_CHUNK) + LIST_CHUNK } : prev))}
+            >
+              Show {Math.min(hidden, LIST_CHUNK)} more ({hidden} not shown)
             </button>
+          ) : (
+            list.hasMore && (
+              <button type="button" className="load-more" onClick={() => void run('more')} disabled={loading === 'more'}>
+                {loading === 'more' ? 'Loading…' : 'Load older games'}
+              </button>
+            )
           )}
         </div>
       )}
