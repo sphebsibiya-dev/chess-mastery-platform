@@ -12,6 +12,7 @@ A chess platform that imports your games, reviews them with Stockfish, coaches y
 | --- | --- | --- | --- |
 | Game import | chess.com username, PGN paste or upload, Lichess later | 1 | The idea |
 | Game review | Stockfish analysis, move classes, accuracy, eval graph, key moments | 1 | Core features |
+| Chess.com-style review | Brilliant, Great, Miss and Book classes; summary report with game rating and phases; guided move-by-move review with retry; board icons and eval bar | 1.5 | Core features |
 | Versus AI | Play Stockfish at a chosen, random or progressive ranked level | 2 | Versus AI mode |
 | Time controls | Bullet, blitz, rapid up to 30 minutes, ratings per format | 2 | Time controls |
 | Coach mode | On or off tips, three hint tiers, Claude explanations | 3 | Coach mode |
@@ -57,6 +58,10 @@ One order across every feature, replacing the separate build orders below.
 2. Stockfish analysis with move classification and accuracy score.
 3. Chess.com username import, then Lichess import.
 4. Key moments, evaluation graph, and time-trouble flags.
+4a. Multi-line analysis and the missing move classes: Brilliant, Great, Miss, Book (with an opening book).
+4b. Board class icons and an evaluation bar.
+4c. Review summary report: accuracy, class counts, estimated game rating, opening/middlegame/endgame ratings.
+4d. Guided move-by-move review: plain-language reasons, show best, retry, show follow-up.
 5. Playable board against Stockfish at a fixed level, with time controls.
 6. Strength slider, random mode, and calibration testing.
 7. Ranked AI with separate ratings per format.
@@ -115,6 +120,15 @@ The original thought was to reverse engineer chess.com's game review (using the 
 4. Classify each move by evaluation swing (centipawn loss or win-probability loss).
 5. Show an accuracy score for each side, an evaluation graph, and a list of key moments (biggest blunders, missed tactics, turning points).
 6. Interactive board to step through the game with the engine's suggested move.
+
+### Version 1.5: chess.com-style review (added Thu 5 Nov 2026)
+
+Decided after v1 merged: make the review feel like chess.com's Game Review before starting play vs Stockfish (#5 waits until 4a–4d are merged). chess.com's algorithm is private, so every rule is our own documented approximation with tunable thresholds.
+
+- **More move classes:** Brilliant (a good move that sacrifices material), Great (the only good move, every alternative is clearly worse), Miss (failed to punish the opponent's mistake), Book (opening theory, from the Lichess open opening list). Needs the engine's top two lines per position.
+- **Board icons and eval bar:** the move's class icon on its destination square, and a vertical evaluation bar beside the board.
+- **Summary report:** both players' accuracy, the opening name, a count of each move class, an estimated game rating per side, and a rating for each phase (opening, middlegame, endgame).
+- **Guided review:** step through move by move with a coach card that says why (hangs a piece, misses mate, only move), and buttons to show the best move, retry the position yourself, and show the engine's follow-up line. Explanations are template-based; Claude explanations stay in coach mode (v3).
 
 ## Coach mode (version 2)
 
