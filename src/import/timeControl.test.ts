@@ -4,10 +4,30 @@ import {
   formatClock,
   formatTimeControl,
   normaliseTimeClass,
+  parseTimeControl,
   presentTimeClasses,
   timeClassFromClock,
 } from './timeControl'
 import type { TimeClass } from './types'
+
+describe('parseTimeControl', () => {
+  it.each([
+    ['180+2', { initialSeconds: 180, incrementSeconds: 2 }],
+    ['600', { initialSeconds: 600, incrementSeconds: 0 }],
+    ['15+0', { initialSeconds: 15, incrementSeconds: 0 }],
+    [' 300+3 ', { initialSeconds: 300, incrementSeconds: 3 }],
+  ])('%s', (input, expected) => {
+    expect(parseTimeControl(input)).toEqual(expected)
+  })
+
+  it.each(['-', '1/86400', '', 'abc', '40/7200:3600'])('returns null for %j', (input) => {
+    expect(parseTimeControl(input)).toBeNull()
+  })
+
+  it('returns null for a missing tag', () => {
+    expect(parseTimeControl(undefined)).toBeNull()
+  })
+})
 
 describe('formatTimeControl', () => {
   it.each([

@@ -46,6 +46,22 @@ export function formatTimeControl(timeControl: string): string {
   return tc
 }
 
+export interface ParsedTimeControl {
+  initialSeconds: number
+  incrementSeconds: number
+}
+
+/**
+ * Live-clock `TimeControl` tag to seconds: '180+2' -> { 180, 2 }, '600' -> { 600, 0 }.
+ * Returns null for games without a live clock ('-', daily '1/86400') and for
+ * anything it cannot read.
+ */
+export function parseTimeControl(timeControl: string | undefined | null): ParsedTimeControl | null {
+  const live = /^(\d+)(?:\+(\d+(?:\.\d+)?))?$/.exec((timeControl ?? '').trim())
+  if (!live) return null
+  return { initialSeconds: Number(live[1]), incrementSeconds: live[2] === undefined ? 0 : Number(live[2]) }
+}
+
 /** Site speed names to our time classes. Returns null for unknown names. */
 export function normaliseTimeClass(name: string | undefined | null): TimeClass | null {
   switch ((name ?? '').toLowerCase()) {
