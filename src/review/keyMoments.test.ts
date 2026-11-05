@@ -127,6 +127,22 @@ describe('findKeyMoments', () => {
       expect(findKeyMoments(moves, reviews, whiteWp)).toEqual([])
     })
 
+    it('always flags a move classified miss, even below the win% bar', () => {
+      const { moves, reviews, whiteWp } = base({ loss: 15, wpBefore: 55, cls: 'miss' })
+      const moment = findKeyMoments(moves, reviews, whiteWp).find((m) => m.ply === 5)
+      expect(moment?.kinds).toEqual(['missed-tactic'])
+      // The move's class is carried so the UI can label it "Miss".
+      expect(moment?.cls).toBe('miss')
+    })
+
+    it('keeps the loss-based kinds on a miss', () => {
+      const { moves, reviews, whiteWp } = base({ loss: 25, wpBefore: 55, cls: 'miss' })
+      expect(findKeyMoments(moves, reviews, whiteWp).find((m) => m.ply === 5)?.kinds).toEqual([
+        'blunder',
+        'missed-tactic',
+      ])
+    })
+
     it('can combine with blunder', () => {
       const { moves, reviews, whiteWp } = base({ loss: 25 })
       expect(findKeyMoments(moves, reviews, whiteWp).find((m) => m.ply === 5)?.kinds).toEqual([
@@ -177,6 +193,12 @@ describe('findKeyMoments', () => {
     const whiteWp = [70, 45]
     const reviews = reviewsFromWp(whiteWp, { 1: { cls: 'best' } })
     expect(reviews[0].loss).toBe(25)
+    expect(findKeyMoments(movesFor(1), reviews, whiteWp)).toEqual([])
+  })
+
+  it.each(['book', 'brilliant', 'great'] as const)('never lists a %s move, even with a noisy eval loss', (cls) => {
+    const whiteWp = [70, 45]
+    const reviews = reviewsFromWp(whiteWp, { 1: { cls } })
     expect(findKeyMoments(movesFor(1), reviews, whiteWp)).toEqual([])
   })
 

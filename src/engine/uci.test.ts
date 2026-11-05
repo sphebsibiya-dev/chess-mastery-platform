@@ -5,6 +5,7 @@ describe('parseInfo', () => {
   it('reads depth, cp score and pv', () => {
     expect(parseInfo('info depth 14 seldepth 20 multipv 1 score cp -35 nodes 1 pv e7e5 g1f3')).toEqual({
       depth: 14,
+      multipv: 1,
       score: { type: 'cp', value: -35 },
       pv: ['e7e5', 'g1f3'],
     })
@@ -12,7 +13,7 @@ describe('parseInfo', () => {
 
   it('reads mate scores', () => {
     expect(parseInfo('info depth 9 score mate -3 pv a1a2')?.score).toEqual({ type: 'mate', value: -3 })
-    expect(parseInfo('info depth 0 score mate 0')).toEqual({ depth: 0, score: { type: 'mate', value: 0 }, pv: [] })
+    expect(parseInfo('info depth 0 score mate 0')).toEqual({ depth: 0, multipv: 1, score: { type: 'mate', value: 0 }, pv: [] })
   })
 
   it('ignores bound-only scores', () => {
@@ -20,8 +21,21 @@ describe('parseInfo', () => {
     expect(parseInfo('info depth 12 score cp 20 upperbound nodes 5 pv e2e4')).toBeNull()
   })
 
-  it('ignores secondary multipv lines', () => {
-    expect(parseInfo('info depth 10 multipv 2 score cp 5 pv d2d4')).toBeNull()
+  it('keeps secondary multipv lines with their index', () => {
+    expect(parseInfo('info depth 10 multipv 2 score cp 5 pv d2d4')).toEqual({
+      depth: 10,
+      multipv: 2,
+      score: { type: 'cp', value: 5 },
+      pv: ['d2d4'],
+    })
+  })
+
+  it('treats a line without a multipv token as line 1', () => {
+    expect(parseInfo('info depth 3 score cp 1 pv e2e4')?.multipv).toBe(1)
+  })
+
+  it('still ignores bound-only scores on secondary lines', () => {
+    expect(parseInfo('info depth 10 multipv 2 score cp 5 lowerbound pv d2d4')).toBeNull()
   })
 
   it('ignores info string, lines without a score, and other lines', () => {

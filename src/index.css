@@ -204,6 +204,10 @@ button.primary:hover { background: #46895a; }
 .badge-mistake { background: #d9761e; }
 .badge-blunder { background: #c9372c; }
 .badge-forced { background: #4b5a75; }
+.badge-brilliant { background: #1baca6; color: #161b18; }
+.badge-great { background: #5c8bb0; }
+.badge-book { background: #a88865; color: #161b18; }
+.badge-miss { background: #e0604f; }
 
 /* Engine analysis panel, under the nav controls */
 .analysis-panel {

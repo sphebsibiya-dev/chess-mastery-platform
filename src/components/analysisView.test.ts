@@ -3,18 +3,53 @@ import { START_FEN } from '../chess/constants'
 import type { PositionAnalysis } from '../engine/types'
 import type { KeyMoment } from '../review/keyMoments'
 import type { GameTimes } from '../review/timeTrouble'
+import type { MoveClass } from '../review/types'
 import {
+  CLASS_INFO,
   ENGINE_ARROW_COLOR,
   engineArrows,
   formatEval,
   graphValueText,
+  momentClass,
+  momentKindsText,
   momentText,
   moveClockText,
   moveLabel,
+  showsBestMove,
   timeBadge,
   timeBadges,
   timeTroubleText,
 } from './analysisView'
+
+describe('CLASS_INFO', () => {
+  const ALL: MoveClass[] = [
+    'brilliant',
+    'great',
+    'best',
+    'excellent',
+    'good',
+    'book',
+    'inaccuracy',
+    'mistake',
+    'miss',
+    'blunder',
+    'forced',
+  ]
+
+  it('has an entry for every class, with unique symbols and labels', () => {
+    expect(Object.keys(CLASS_INFO).sort()).toEqual([...ALL].sort())
+    const symbols = ALL.map((c) => CLASS_INFO[c].symbol)
+    expect(new Set(symbols).size).toBe(ALL.length)
+    expect(new Set(ALL.map((c) => CLASS_INFO[c].label)).size).toBe(ALL.length)
+    expect(CLASS_INFO.brilliant.symbol).toBe('!!')
+    expect(CLASS_INFO.great.symbol).toBe('!')
+    expect(CLASS_INFO.excellent.symbol).toBe('+')
+  })
+
+  it('adds "best was X" only when the move was not best, forced, book, brilliant or great', () => {
+    expect(ALL.filter(showsBestMove)).toEqual(['excellent', 'good', 'inaccuracy', 'mistake', 'miss', 'blunder'])
+  })
+})
 
 describe('key moment and clock text', () => {
   const qxb2 = { moveNumber: 23, color: 'b' as const, san: 'Qxb2' }
@@ -38,6 +73,26 @@ describe('key moment and clock text', () => {
     expect(momentText({ ...moment, kinds: ['missed-tactic'], bestMoveSan: undefined }, qxb2)).toBe(
       '23... Qxb2 · Missed tactic · White 52% → 18%',
     )
+  })
+
+  it('labels a move classed miss as "Miss", like the move list does', () => {
+    const moment: KeyMoment = {
+      ply: 47,
+      color: 'w',
+      kinds: ['blunder', 'missed-tactic', 'turning-point'],
+      cls: 'miss',
+      loss: 30,
+      whiteWpBefore: 80,
+      whiteWpAfter: 50,
+      bestMoveSan: 'Qxe4',
+    }
+    const qd3 = { moveNumber: 24, color: 'w' as const, san: 'Qd3' }
+    expect(momentText(moment, qd3)).toBe('24. Qd3 · Miss, turning point · White 80% → 50% · best Qxe4')
+    expect(momentText({ ...moment, kinds: ['missed-tactic'] }, qd3)).toBe('24. Qd3 · Miss · White 80% → 50% · best Qxe4')
+    expect(momentClass(moment)).toBe('moment-missed-tactic')
+    // Other classes keep the kind labels and the first kind's colour.
+    expect(momentKindsText(['blunder', 'missed-tactic'], 'blunder')).toBe('Blunder, missed tactic')
+    expect(momentClass({ kinds: ['blunder', 'missed-tactic'], cls: 'blunder' })).toBe('moment-blunder')
   })
 
   it('labels time badges', () => {
@@ -104,8 +159,8 @@ describe('formatEval', () => {
 
 describe('engineArrows', () => {
   const positions: PositionAnalysis[] = [
-    { fen: START_FEN, eval: { kind: 'cp', cp: 20 }, bestMove: 'e2e4', pv: ['e2e4'], depth: 14 },
-    { fen: 'x', eval: { kind: 'mate', in: 0, winner: 'w' }, pv: [], depth: 0 },
+    { fen: START_FEN, eval: { kind: 'cp', cp: 20 }, bestMove: 'e2e4', pv: ['e2e4'], depth: 14, lines: [] },
+    { fen: 'x', eval: { kind: 'mate', in: 0, winner: 'w' }, pv: [], depth: 0, lines: [] },
   ]
 
   it('draws the best move for the current ply', () => {

@@ -2,6 +2,8 @@ import type { UciScore } from './types'
 
 export interface UciInfo {
   depth: number
+  /** MultiPV index, 1 = best line. 1 when the token is missing. */
+  multipv: number
   score: UciScore
   pv: string[]
 }
@@ -10,13 +12,14 @@ export interface UciInfo {
  * Parses a UCI `info` line that carries a usable score.
  * Returns null for anything else: non-info lines, `info string`, lines without
  * depth or score, bound-only scores (`lowerbound`/`upperbound`, which are not
- * exact) and secondary MultiPV lines (`multipv` > 1).
+ * exact). Secondary MultiPV lines are kept with their `multipv` index.
  */
 export function parseInfo(line: string): UciInfo | null {
   const tokens = line.trim().split(/\s+/)
   if (tokens[0] !== 'info') return null
 
   let depth: number | undefined
+  let multipv = 1
   let score: UciScore | undefined
   let pv: string[] = []
 
@@ -30,7 +33,8 @@ export function parseInfo(line: string): UciInfo | null {
         depth = Number(tokens[++i])
         break
       case 'multipv':
-        if (Number(tokens[++i]) !== 1) return null
+        multipv = Number(tokens[++i])
+        if (!Number.isInteger(multipv) || multipv < 1) return null
         break
       case 'score': {
         const type = tokens[++i]
@@ -50,7 +54,7 @@ export function parseInfo(line: string): UciInfo | null {
   }
 
   if (depth === undefined || !Number.isFinite(depth) || !score) return null
-  return { depth, score, pv }
+  return { depth, multipv, score, pv }
 }
 
 /**

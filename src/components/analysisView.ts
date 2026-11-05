@@ -12,13 +12,25 @@ export const ENGINE_ARROW_COLOR = 'rgba(46, 160, 67, 0.85)'
 
 /** Badge symbol, accessible label, and the phrase used in "Nf3 is …". */
 export const CLASS_INFO: Record<MoveClass, { symbol: string; label: string; phrase: string }> = {
+  brilliant: { symbol: '!!', label: 'Brilliant', phrase: 'brilliant' },
+  great: { symbol: '!', label: 'Great move', phrase: 'a great move' },
   best: { symbol: '★', label: 'Best move', phrase: 'the best move' },
-  excellent: { symbol: '!', label: 'Excellent', phrase: 'excellent' },
+  excellent: { symbol: '+', label: 'Excellent', phrase: 'excellent' },
   good: { symbol: '✓', label: 'Good', phrase: 'good' },
+  book: { symbol: '≡', label: 'Book', phrase: 'a book move' },
   inaccuracy: { symbol: '?!', label: 'Inaccuracy', phrase: 'an inaccuracy' },
   mistake: { symbol: '?', label: 'Mistake', phrase: 'a mistake' },
+  miss: { symbol: '✕', label: 'Miss', phrase: 'a miss' },
   blunder: { symbol: '??', label: 'Blunder', phrase: 'a blunder' },
   forced: { symbol: '□', label: 'Forced', phrase: 'the only legal move' },
+}
+
+/** Classes that never get ", best was X": the move was the best one, the only one, or a book move. */
+const NO_BEST_SUFFIX: ReadonlySet<MoveClass> = new Set(['best', 'forced', 'book', 'brilliant', 'great'])
+
+/** Whether the analysis panel should add ", best was X" after the class phrase. */
+export function showsBestMove(cls: MoveClass): boolean {
+  return !NO_BEST_SUFFIX.has(cls)
 }
 
 /**
@@ -62,10 +74,23 @@ export const MOMENT_KIND_LABELS: Record<KeyMomentKind, string> = {
   'turning-point': 'Turning point',
 }
 
-/** Kinds as one phrase: 'Blunder, turning point'. */
-export function momentKindsText(kinds: readonly KeyMomentKind[]): string {
-  const text = kinds.map((k) => MOMENT_KIND_LABELS[k].toLowerCase()).join(', ')
+/**
+ * Kinds as one phrase: 'Blunder, turning point'. A move classed `miss` leads
+ * with 'Miss' (its label in the move list) instead of 'blunder' / 'missed
+ * tactic', so both places use the same word: 'Miss, turning point'.
+ */
+export function momentKindsText(kinds: readonly KeyMomentKind[], cls?: MoveClass): string {
+  const isMiss = cls === 'miss'
+  const shown = isMiss ? kinds.filter((k) => k === 'turning-point') : kinds
+  const parts = shown.map((k) => MOMENT_KIND_LABELS[k].toLowerCase())
+  if (isMiss) parts.unshift(CLASS_INFO.miss.label)
+  const text = parts.join(', ')
   return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/** CSS modifier for a moment row: a miss uses the missed-tactic colour. */
+export function momentClass(moment: Pick<KeyMoment, 'kinds' | 'cls'>): string {
+  return `moment-${moment.cls === 'miss' ? 'missed-tactic' : moment.kinds[0]}`
 }
 
 /** 'White 52% → 18%' (White's win% before and after). */
@@ -75,7 +100,7 @@ export function momentSwingText(moment: Pick<KeyMoment, 'whiteWpBefore' | 'white
 
 /** '23... Qxb2 · Blunder, turning point · White 52% → 18% · best Rd1' */
 export function momentText(moment: KeyMoment, move: MoveRef): string {
-  const parts = [moveLabel(move), momentKindsText(moment.kinds), momentSwingText(moment)]
+  const parts = [moveLabel(move), momentKindsText(moment.kinds, moment.cls), momentSwingText(moment)]
   if (moment.bestMoveSan && moment.bestMoveSan !== move.san) parts.push(`best ${moment.bestMoveSan}`)
   return parts.join(' · ')
 }
