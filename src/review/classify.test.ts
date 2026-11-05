@@ -193,6 +193,13 @@ const PHILIDOR_FEN = 'r6k/6pp/7N/8/8/1Q6/6PP/6K1 w - - 0 1'
 const philidor = { ply: 1, color: 'w' as const, lan: 'b3g8', fenBefore: PHILIDOR_FEN }
 const PHILIDOR_PV = ['a8g8', 'h6f7']
 
+/**
+ * Byrne-Fischer, New York 1956, before 17...Be6!! and Stockfish 19 lite's depth-14
+ * line after it (18.Qxc3 Qxc5 19.dxc5 Bxc3 20.Bxe6 Rxe6 ...). Engine: -2.23 for White.
+ */
+const BYRNE_FISCHER_FEN = 'r3r1k1/pp3pbp/1qp3p1/2B5/2BP2b1/Q1n2N2/P4PPP/3R1K1R b - - 3 17'
+const BYRNE_FISCHER_PV = 'a3c3 b6c5 d4c5 g7c3 c4e6 e8e6 g2g3 a8e8 f1g2 c3b4 d1d7 b4c5 d7b7 e6e2 h1f1 c5b6 f3g5'.split(' ')
+
 describe('new class thresholds', () => {
   it('exports the tunable constants', () => {
     expect({
@@ -226,17 +233,17 @@ describe('sacrificedMaterial', () => {
     expect(sacrificedMaterial(fen, 'b5c6', 'w', ['d7c6'])).toBe(0)
   })
 
-  it('takes the best balance in the line, so material won back by reply 3 cancels it', () => {
+  it('follows an exchange on one square to its end', () => {
     // White doubles on the d-file: Rxd7 Rxd7 Rxd7 wins a pawn overall (+4 before).
     const fen = '3r2k1/3p1ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1'
-    // Looking only at reply 1, the rook is gone: 4 - 0 = 4.
+    // If the line stops after Rxd7 Rxd7, the rook is gone: 4 - 0 = 4.
     expect(sacrificedMaterial(fen, 'd2d7', 'w', ['d8d7'])).toBe(4)
-    // With Rxd7 and a quiet reply 3, White is +5: no sacrifice.
+    // With the second Rxd7, White is +5: no sacrifice.
     expect(sacrificedMaterial(fen, 'd2d7', 'w', ['d8d7', 'd1d7', 'g8f8'])).toBe(-1)
   })
 
-  it('stops after BRILLIANT_PV_PLIES plies when the last one was quiet', () => {
-    // Ply 4 (h3) is quiet, so the win-back at ply 6 is not looked at.
+  it('ends the exchange at the first ply that is not a capture on that square', () => {
+    // g3 interrupts after Rxd7 Rxd7, so the later Rxd7 is not part of the exchange.
     const fen = '3r2k1/3p1ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1'
     expect(sacrificedMaterial(fen, 'd2d7', 'w', ['d8d7', 'g2g3', 'g8f8', 'h2h3', 'g7g6', 'd1d7'])).toBe(4)
   })
@@ -256,16 +263,36 @@ describe('sacrificedMaterial', () => {
     expect(r.cls).toBe('best')
   })
 
-  it('keeps replaying past BRILLIANT_PV_PLIES while captures continue', () => {
-    // Rxd7 Rxd7, g3 h6, Rxd7 (capture at ply 4) Kxd7 (ply 5): the rook is lost after all.
-    const fen = '3rk3/3p1ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1'
-    const pv = ['d8d7', 'g2g3', 'h7h6', 'd1d7', 'e8d7', 'g3g4', 'h6h5']
-    expect(sacrificedMaterial(fen, 'd2d7', 'w', pv)).toBe(4)
-    // Stopping at ply 4 would have read White's balance after Rxd7 (+5) and missed Kxd7.
-    expect(sacrificedMaterial(fen, 'd2d7', 'w', pv.slice(0, 4))).toBe(-1)
+  it('follows a long exchange past BRILLIANT_PV_PLIES', () => {
+    // Nxd5 Nxd5 Bxd5 Nxd5 Rxd5 Qxd5 Rxd5: six replies, all on d5. White ends a rook up (0 -> +5).
+    const fen = '3q2k1/8/1n3n2/3p4/8/2N2B2/3R4/3R2K1 w - - 0 1'
+    const pv = ['f6d5', 'f3d5', 'b6d5', 'd2d5', 'd8d5', 'd1d5']
+    expect(sacrificedMaterial(fen, 'c3d5', 'w', pv)).toBe(-5)
+    // Cut short after 4 replies, the exchange ends after the first Rxd5: White +1.
+    expect(sacrificedMaterial(fen, 'c3d5', 'w', pv.slice(0, 4))).toBe(-1)
   })
 
-  it('exports the capture-extension cap', () => {
+  it('treats a capture answered by a recapture on the same square as an exchange', () => {
+    // 1.Nd5 (defended by e4) Nxd5 2.exd5: knights traded, no sacrifice.
+    const defended = '6k1/8/1n6/8/4P3/2N5/8/6K1 w - - 0 1'
+    expect(sacrificedMaterial(defended, 'c3d5', 'w', ['b6d5', 'e4d5'])).toBe(0)
+    // Without the e4 pawn the knight is simply lost.
+    const hanging = '6k1/8/1n6/8/8/2N5/8/6K1 w - - 0 1'
+    expect(sacrificedMaterial(hanging, 'c3d5', 'w', ['b6d5', 'g1f2'])).toBe(3)
+  })
+
+  it('counts a piece given for a pawn and recaptured by the king (Bxf7+ Kxf7)', () => {
+    const fen = 'rnbqk2r/pppp1ppp/5n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1'
+    expect(sacrificedMaterial(fen, 'c4f7', 'w', ['e8f7', 'f3g5', 'f7g8'])).toBe(2)
+  })
+
+  it('does not let material regained later by other tactics cancel a sacrifice', () => {
+    // 17...Be6: 18.Qxc3 takes the knight; Black gets material back only via Qxc5, dxc5 Bxc3.
+    const sacrifice = sacrificedMaterial(BYRNE_FISCHER_FEN, 'g4e6', 'b', BYRNE_FISCHER_PV)
+    expect(sacrifice).toBeGreaterThanOrEqual(BRILLIANT_MIN_SACRIFICE)
+  })
+
+  it('exports the exchange cap', () => {
     expect(BRILLIANT_MAX_PV_PLIES).toBe(10)
   })
 
@@ -290,6 +317,14 @@ describe('brilliant', () => {
     const r = classifyMove({ move: philidor, before: cp(150), after: cp(160), bestMove: 'b3g8', pvAfter: PHILIDOR_PV })
     expect(r.cls).toBe('brilliant')
     expect(r.loss).toBe(0)
+  })
+
+  it('marks Byrne-Fischer 17...Be6 brilliant with its real engine line', () => {
+    // Stockfish depth 14: -2.23 for White before and after; Be6 is the engine move.
+    const move = { ply: 34, color: 'b' as const, lan: 'g4e6', fenBefore: BYRNE_FISCHER_FEN }
+    const lines = [line('g4e6', cp(-223)), line('g4f3', cp(0))]
+    const input = { move, before: cp(-223), after: cp(-223), bestMove: 'g4e6', pvAfter: BYRNE_FISCHER_PV, lines }
+    expect(classifyMove(input).cls).toBe('brilliant')
   })
 
   it('also counts the engine best move with a noisy loss', () => {

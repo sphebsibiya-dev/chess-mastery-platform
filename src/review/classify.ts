@@ -1,4 +1,4 @@
-import { Chess } from 'chess.js'
+import { Chess, type Move } from 'chess.js'
 import { balanceOf } from '../chess/material'
 import { uciToSan, uciToSquares } from '../chess/uci'
 import type { AnalysisLine, Eval, GameAnalysis } from '../engine/types'
@@ -70,22 +70,24 @@ export interface ClassifyInput {
   prevReview?: Pick<MoveReview, 'loss'>
 }
 
-/**
- * Brilliant: while captures continue, the engine line is replayed past
- * `BRILLIANT_PV_PLIES`, up to this many plies (so an exchange is seen to its end).
- */
+/** Brilliant: an exchange (same-square capture chain) is followed for at most this many plies of the line. */
 export const BRILLIANT_MAX_PV_PLIES = 10
 
 /**
- * Material the mover gives up along the engine line: the mover's material
- * balance before the move minus the best balance it reaches along `pvAfter`.
- * The line is replayed for `BRILLIANT_PV_PLIES` plies, and further (up to
- * `BRILLIANT_MAX_PV_PLIES`) while the last ply was a capture, so an exchange is
- * followed until it stops. The balance is read each time it is the mover's turn
- * and once more at the end of the replayed line (which catches the mover's own
- * final recapture). Taking the best balance means material won back is a trade,
- * not a sacrifice. Undefined if the opponent has no reply in the line (or the
- * move is illegal).
+ * Material the mover gives up along the engine line (`pvAfter`, the line after
+ * the move), in pawns. Two cases:
+ *
+ * - **Exchange**: the move is a capture that the opponent recaptures on the same
+ *   square, or the opponent's first reply captures and the mover recaptures on
+ *   that square. The same-square capture chain is followed to its end (up to
+ *   `BRILLIANT_MAX_PV_PLIES`) and the result is the material lost over the whole
+ *   exchange, so an ordinary trade, or one that wins material, is not a sacrifice.
+ * - **Otherwise** (material left en prise and taken, regained later, if at all,
+ *   by other tactics): the largest deficit the mover is left with after the
+ *   opponent's replies within `BRILLIANT_PV_PLIES` plies. Material won back later
+ *   through checks or other captures does not cancel the sacrifice.
+ *
+ * Undefined if the opponent has no reply in the line (or the move is illegal).
  */
 export function sacrificedMaterial(
   fenBefore: string,
@@ -95,36 +97,48 @@ export function sacrificedMaterial(
 ): number | undefined {
   const chess = new Chess(fenBefore)
   const before = balanceOf(chess, color)
-  /** Plays a UCI move; returns whether it captured, or undefined if it is illegal. */
-  const play = (uci: string): boolean | undefined => {
+  const play = (uci: string): Move | undefined => {
     const squares = uciToSquares(uci)
     if (!squares) return undefined
     try {
-      return chess.move(squares).isCapture()
+      return chess.move(squares)
     } catch {
       return undefined
     }
   }
-  if (play(lan) === undefined) return undefined
-  let best: number | undefined
-  const sample = () => {
-    const balance = balanceOf(chess, color)
-    best = best === undefined ? balance : Math.max(best, balance)
+  const first = play(lan)
+  if (!first) return undefined
+
+  // Replay the line, keeping the mover's balance after every ply.
+  const replies: Move[] = []
+  const balances: number[] = []
+  for (const uci of pvAfter.slice(0, Math.max(BRILLIANT_PV_PLIES, BRILLIANT_MAX_PV_PLIES))) {
+    const reply = play(uci)
+    if (!reply) break
+    replies.push(reply)
+    balances.push(balanceOf(chess, color))
   }
-  let played = 0
-  let lastWasCapture = false
-  for (const uci of pvAfter) {
-    if (played >= BRILLIANT_MAX_PV_PLIES) break
-    if (played >= BRILLIANT_PV_PLIES && !lastWasCapture) break
-    const captured = play(uci)
-    if (captured === undefined) break
-    played++
-    lastWasCapture = captured
-    if (chess.turn() === color) sample()
+  if (replies.length === 0) return undefined
+
+  /** Length of the leading run of replies (from `start`) that capture on `square`. */
+  const chainLength = (start: number, square: string): number => {
+    let n = 0
+    while (start + n < replies.length && replies[start + n].isCapture() && replies[start + n].to === square) n++
+    return n
   }
-  if (played === 0) return undefined
-  sample()
-  return before - (best as number)
+  // The move captures and is recaptured on the same square...
+  let exchangeEnd = first.isCapture() ? chainLength(0, first.to) : 0
+  // ...or the opponent captures first and the mover recaptures on that square.
+  if (exchangeEnd === 0 && replies[0].isCapture()) {
+    const n = chainLength(0, replies[0].to)
+    if (n >= 2) exchangeEnd = n
+  }
+  if (exchangeEnd > 0) return before - balances[exchangeEnd - 1]
+
+  // Not an exchange: the worst balance after an opponent reply (plies 1, 3, ...).
+  let worst = Infinity
+  for (let i = 0; i < Math.min(replies.length, BRILLIANT_PV_PLIES); i += 2) worst = Math.min(worst, balances[i])
+  return before - worst
 }
 
 /** The move recaptures on the square where the opponent just captured. */
