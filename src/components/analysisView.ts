@@ -12,13 +12,25 @@ export const ENGINE_ARROW_COLOR = 'rgba(46, 160, 67, 0.85)'
 
 /** Badge symbol, accessible label, and the phrase used in "Nf3 is …". */
 export const CLASS_INFO: Record<MoveClass, { symbol: string; label: string; phrase: string }> = {
+  brilliant: { symbol: '!!', label: 'Brilliant', phrase: 'brilliant' },
+  great: { symbol: '!', label: 'Great move', phrase: 'a great move' },
   best: { symbol: '★', label: 'Best move', phrase: 'the best move' },
-  excellent: { symbol: '!', label: 'Excellent', phrase: 'excellent' },
+  excellent: { symbol: '+', label: 'Excellent', phrase: 'excellent' },
   good: { symbol: '✓', label: 'Good', phrase: 'good' },
+  book: { symbol: '≡', label: 'Book', phrase: 'a book move' },
   inaccuracy: { symbol: '?!', label: 'Inaccuracy', phrase: 'an inaccuracy' },
   mistake: { symbol: '?', label: 'Mistake', phrase: 'a mistake' },
+  miss: { symbol: '✕', label: 'Miss', phrase: 'a miss' },
   blunder: { symbol: '??', label: 'Blunder', phrase: 'a blunder' },
   forced: { symbol: '□', label: 'Forced', phrase: 'the only legal move' },
+}
+
+/** Classes that never get ", best was X": the move was the best one, the only one, or a book move. */
+const NO_BEST_SUFFIX: ReadonlySet<MoveClass> = new Set(['best', 'forced', 'book', 'brilliant', 'great'])
+
+/** Whether the analysis panel should add ", best was X" after the class phrase. */
+export function showsBestMove(cls: MoveClass): boolean {
+  return !NO_BEST_SUFFIX.has(cls)
 }
 
 /**

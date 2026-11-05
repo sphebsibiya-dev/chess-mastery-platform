@@ -1,7 +1,7 @@
 import { uciToSan } from '../chess/uci'
 import type { ImportedGame } from '../import/types'
 import type { KeyMoment } from '../review/keyMoments'
-import { CLASS_INFO, formatEval } from './analysisView'
+import { CLASS_INFO, formatEval, showsBestMove } from './analysisView'
 import ClassificationBadge from './ClassificationBadge'
 import KeyMoments, { type TimeTroubleEntry } from './KeyMoments'
 import type { GameAnalysisHandle } from './useGameAnalysis'
@@ -83,7 +83,7 @@ export default function AnalysisPanel({
           <span>
             {move.moveNumber}
             {move.color === 'w' ? '.' : '...'} {move.san} is {CLASS_INFO[review.cls].phrase}
-            {review.cls !== 'best' && review.cls !== 'forced' && review.bestMoveSan
+            {showsBestMove(review.cls) && review.bestMoveSan
               ? `, best was ${review.bestMoveSan}`
               : ''}
           </span>

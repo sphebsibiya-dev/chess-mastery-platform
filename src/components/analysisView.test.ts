@@ -3,7 +3,9 @@ import { START_FEN } from '../chess/constants'
 import type { PositionAnalysis } from '../engine/types'
 import type { KeyMoment } from '../review/keyMoments'
 import type { GameTimes } from '../review/timeTrouble'
+import type { MoveClass } from '../review/types'
 import {
+  CLASS_INFO,
   ENGINE_ARROW_COLOR,
   engineArrows,
   formatEval,
@@ -11,10 +13,41 @@ import {
   momentText,
   moveClockText,
   moveLabel,
+  showsBestMove,
   timeBadge,
   timeBadges,
   timeTroubleText,
 } from './analysisView'
+
+describe('CLASS_INFO', () => {
+  const ALL: MoveClass[] = [
+    'brilliant',
+    'great',
+    'best',
+    'excellent',
+    'good',
+    'book',
+    'inaccuracy',
+    'mistake',
+    'miss',
+    'blunder',
+    'forced',
+  ]
+
+  it('has an entry for every class, with unique symbols and labels', () => {
+    expect(Object.keys(CLASS_INFO).sort()).toEqual([...ALL].sort())
+    const symbols = ALL.map((c) => CLASS_INFO[c].symbol)
+    expect(new Set(symbols).size).toBe(ALL.length)
+    expect(new Set(ALL.map((c) => CLASS_INFO[c].label)).size).toBe(ALL.length)
+    expect(CLASS_INFO.brilliant.symbol).toBe('!!')
+    expect(CLASS_INFO.great.symbol).toBe('!')
+    expect(CLASS_INFO.excellent.symbol).toBe('+')
+  })
+
+  it('adds "best was X" only when the move was not best, forced, book, brilliant or great', () => {
+    expect(ALL.filter(showsBestMove)).toEqual(['excellent', 'good', 'inaccuracy', 'mistake', 'miss', 'blunder'])
+  })
+})
 
 describe('key moment and clock text', () => {
   const qxb2 = { moveNumber: 23, color: 'b' as const, san: 'Qxb2' }

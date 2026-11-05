@@ -5,12 +5,20 @@ import { createStockfishWorker, StockfishEngine } from '../engine/stockfish'
 import type { GameAnalysis, PositionAnalysis } from '../engine/types'
 import type { ImportedGame } from '../import/types'
 import { classifyGame } from '../review/classify'
+import { loadOpeningBook, type Opening, type OpeningBook } from '../review/openings/book'
 import type { MoveReview, SideAccuracy } from '../review/types'
 
 export type AnalysisState =
   | { status: 'loading' }
   | { status: 'running'; done: number; total: number; partial: PositionAnalysis[] }
-  | { status: 'done'; analysis: GameAnalysis; reviews: MoveReview[]; accuracy: SideAccuracy }
+  | {
+      status: 'done'
+      analysis: GameAnalysis
+      reviews: MoveReview[]
+      accuracy: SideAccuracy
+      /** The game's opening from the book, when it reached a named book position. */
+      opening?: Opening
+    }
   | { status: 'error'; message: string }
 
 export interface GameAnalysisHandle {
@@ -50,6 +58,9 @@ export function useGameAnalysis(game: ImportedGame, depth = DEFAULT_DEPTH): Game
     }
 
     const total = game.moves.length + 1
+    // The opening book is a lazy chunk; load it while the engine works. If it
+    // fails, the review simply has no book moves.
+    const bookPromise: Promise<OpeningBook | undefined> = loadOpeningBook().catch(() => undefined)
     engine
       .ready()
       .then(() => {
@@ -63,10 +74,12 @@ export function useGameAnalysis(game: ImportedGame, depth = DEFAULT_DEPTH): Game
           },
         })
       })
-      .then((analysis) => {
+      .then(async (analysis) => {
         if (!analysis || signal.aborted) return
-        const { reviews, accuracy } = classifyGame(game, analysis)
-        setState({ status: 'done', analysis, reviews, accuracy })
+        const book = await bookPromise
+        if (signal.aborted) return
+        const { reviews, accuracy, opening } = classifyGame(game, analysis, { book })
+        setState({ status: 'done', analysis, reviews, accuracy, opening })
       })
       .catch((err: unknown) => {
         if (signal.aborted || isAbortError(err)) return
