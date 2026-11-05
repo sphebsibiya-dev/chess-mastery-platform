@@ -56,7 +56,7 @@ function largestLosses<T extends { ply: number; loss: number }>(items: T[], n: n
 /**
  * Finds the moves worth jumping to: blunders, missed tactics (the opponent just
  * blundered and the mover did not punish it) and turning points (the win% band
- * changed). Forced moves never count. Returns at most `MAX_MOMENTS`, sorted by ply.
+ * changed). Forced and engine-best moves never count. Returns at most `MAX_MOMENTS`, sorted by ply.
  *
  * @param whiteWp White's win% for every position, `moves.length + 1` entries.
  */
@@ -75,7 +75,9 @@ export function findKeyMoments(
   const candidates: KeyMoment[] = []
   moves.forEach((move, i) => {
     const review = reviews[i]
-    if (review.cls === 'forced') return
+    // Forced moves had no choice; engine-best moves are labelled "best" in the
+    // move list, so any loss on them is eval noise between search depths.
+    if (review.cls === 'forced' || review.cls === 'best') return
     const kinds = new Set<KeyMomentKind>()
 
     if (review.loss >= BLUNDER_MIN_LOSS) kinds.add('blunder')
@@ -87,7 +89,6 @@ export function findKeyMoments(
       prevReview &&
       prevMove.color !== move.color &&
       prevReview.loss >= MISSED_TACTIC_OPPONENT_LOSS &&
-      review.cls !== 'best' &&
       review.wpBefore >= MISSED_TACTIC_MIN_WP &&
       review.loss >= MISSED_TACTIC_MIN_LOSS
     ) {

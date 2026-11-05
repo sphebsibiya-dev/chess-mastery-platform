@@ -165,7 +165,28 @@ describe('moveTimes', () => {
 
   it('treats daily and unlimited games as untimed', () => {
     expect(moveTimes(game([100, 100], '1/86400')).hasClocks).toBe(false)
+    expect(moveTimes(game([100, 100], '1/259200')).hasClocks).toBe(false)
     expect(moveTimes(game([100, 100], '-')).hasClocks).toBe(false)
+  })
+
+  it('keeps clocks for a moves/seconds control like 40/7200', () => {
+    const times = moveTimes(game([7190, 7180, 7100, 7000], '40/7200'))
+    expect(times.hasClocks).toBe(true)
+    // Not a live 'base+inc' tag, so the initial time falls back to the highest clock.
+    expect(times.control).toEqual({ initialSeconds: 7190, incrementSeconds: 0 })
+    expect(times.moves.map((m) => m.spentSeconds)).toEqual([0, 10, 90, 180])
+  })
+
+  it('does not charge the increment on a first move that still shows the initial time (Lichess)', () => {
+    const times = moveTimes(parseGame(`[TimeControl "180+2"]\n\n${LICHESS_CLOCKS}`))
+    // 1. e4 3:00, 1... e5 2:59, 2. Nf3 2:58.
+    expect(times.moves.map((m) => m.spentSeconds)).toEqual([0, 3, 4])
+  })
+
+  it('still counts the increment on a chess.com first move', () => {
+    // chess.com adds the increment after the first move: 2:59 on a 3+2 clock means 3s used.
+    const times = moveTimes(game([179, 181], '180+2'))
+    expect(times.moves.map((m) => m.spentSeconds)).toEqual([3, 1])
   })
 
   it('skips spent time after a move without a clock', () => {

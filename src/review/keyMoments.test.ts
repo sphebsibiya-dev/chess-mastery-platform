@@ -172,6 +172,14 @@ describe('findKeyMoments', () => {
     ])
   })
 
+  it('never lists the engine-best move, even with a noisy eval loss', () => {
+    // White's move matches the engine but the evals say it lost 25 and swung the band.
+    const whiteWp = [70, 45]
+    const reviews = reviewsFromWp(whiteWp, { 1: { cls: 'best' } })
+    expect(reviews[0].loss).toBe(25)
+    expect(findKeyMoments(movesFor(1), reviews, whiteWp)).toEqual([])
+  })
+
   it('returns [] for an empty game or only forced moves', () => {
     expect(findKeyMoments([], [], [50])).toEqual([])
     const whiteWp = [50, 90, 10]

@@ -57,10 +57,13 @@ function median(xs: number[]): number {
   return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
 }
 
-/** No live clock: '-' (unlimited) or daily '1/86400'. */
+/**
+ * No live clock: '-' (unlimited) or chess.com daily '1/86400'. Other
+ * 'moves/seconds' controls (e.g. classical '40/7200') keep their clocks.
+ */
 function isUntimed(timeControl: string | undefined): boolean {
   const tc = timeControl?.trim()
-  return tc === '-' || (tc !== undefined && /^\d+\/\d+$/.test(tc))
+  return tc === '-' || (tc !== undefined && /^1\/\d+$/.test(tc))
 }
 
 type TimedMove = Pick<ImportedMove, 'ply' | 'moveNumber' | 'color' | 'clockSeconds'>
@@ -69,7 +72,8 @@ type TimedMove = Pick<ImportedMove, 'ply' | 'moveNumber' | 'color' | 'clockSecon
  * Time used per move and time-trouble flags, from `[%clk]` comments.
  *
  * - spent = previous clock of the same side - clock + increment, floored at 0.
- *   A side's first move uses the initial time as the previous clock.
+ *   A side's first move uses the initial time as the previous clock; if it
+ *   still shows exactly the initial time (Lichess), it took 0s.
  * - Without a `TimeControl` tag the initial time is the highest clock seen and
  *   the increment is 0.
  * - `low-clock`: clock below `lowClockThreshold(initial)`.
@@ -99,6 +103,7 @@ export function moveTimes(
   const threshold = lowClockThreshold(control.initialSeconds)
 
   const prevClock: { w?: number; b?: number } = { w: control.initialSeconds, b: control.initialSeconds }
+  const moved = { w: false, b: false }
   const troubleStart: GameTimes['troubleStart'] = {}
   const moves: MoveTime[] = game.moves.map((m) => {
     const entry: MoveTime = { ply: m.ply, flags: [] }
@@ -109,7 +114,14 @@ export function moveTimes(
     }
     entry.clockSeconds = clock
     const prev = prevClock[m.color]
-    if (prev !== undefined) entry.spentSeconds = Math.max(0, prev - clock + control.incrementSeconds)
+    if (!moved[m.color] && clock === control.initialSeconds) {
+      // Lichess does not start a side's clock (or add the increment) before
+      // its first move, so the first move shows the full initial time.
+      entry.spentSeconds = 0
+    } else if (prev !== undefined) {
+      entry.spentSeconds = Math.max(0, prev - clock + control.incrementSeconds)
+    }
+    moved[m.color] = true
     prevClock[m.color] = clock
     if (clock < threshold) {
       entry.flags.push('low-clock')
