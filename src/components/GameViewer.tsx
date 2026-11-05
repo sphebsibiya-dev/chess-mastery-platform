@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useReducer, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, type CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
 import type { ImportedGame } from '../import/types'
+import AnalysisPanel from './AnalysisPanel'
+import { engineArrows } from './analysisView'
 import MoveList from './MoveList'
 import NavControls from './NavControls'
 import { navReducer, type NavAction } from './navigation'
+import { useGameAnalysis } from './useGameAnalysis'
 
 interface GameViewerProps {
   game: ImportedGame
@@ -35,6 +38,7 @@ export default function GameViewer({ game }: GameViewerProps) {
   // The parent keys this component by game id, so state starts fresh per game.
   const [nav, dispatch] = useReducer(navReducer, { ply: 0, total: game.moves.length })
   const navigate = useCallback((action: NavAction) => dispatch(action), [])
+  const analysis = useGameAnalysis(game)
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -50,6 +54,9 @@ export default function GameViewer({ game }: GameViewerProps) {
   }, [])
 
   const { ply } = nav
+  // Engine best-move arrow; other arrow sources can be concatenated onto this array.
+  const arrows = useMemo(() => engineArrows(analysis.positions, ply), [analysis.positions, ply])
+  const classes = analysis.state.status === 'done' ? analysis.state.reviews.map((r) => r.cls) : undefined
   const current = ply > 0 ? game.moves[ply - 1] : undefined
   const position = current ? current.fenAfter : game.startFen
   const squareStyles: Record<string, CSSProperties> = current
@@ -77,6 +84,7 @@ export default function GameViewer({ game }: GameViewerProps) {
               position,
               allowDragging: false,
               squareStyles,
+              arrows,
               animationDurationInMs: 150,
             }}
           />
@@ -85,6 +93,7 @@ export default function GameViewer({ game }: GameViewerProps) {
           {status}
         </div>
         <NavControls ply={ply} total={nav.total} onNavigate={navigate} />
+        <AnalysisPanel analysis={analysis} game={game} ply={ply} />
         {/* Below the controls so a long comment never moves the buttons. */}
         <p className="move-comment" aria-live="polite">
           {current?.comment ?? ''}
@@ -92,7 +101,12 @@ export default function GameViewer({ game }: GameViewerProps) {
       </div>
       <div className="viewer-moves">
         {game.moves.length > 0 ? (
-          <MoveList moves={game.moves} ply={ply} onSelect={(p) => dispatch({ type: 'goto', ply: p })} />
+          <MoveList
+            moves={game.moves}
+            ply={ply}
+            onSelect={(p) => dispatch({ type: 'goto', ply: p })}
+            classes={classes}
+          />
         ) : (
           <p className="muted">No moves.</p>
         )}
