@@ -1,6 +1,6 @@
-# Chess Mastery Platform
+# Mogfish
 
-Chess review, coach and learning platform built on the player's own games. Product plan, feature list and build order: `Chess Mastery Platform.md`. Work is tracked as GitHub issues on the project board.
+**Mogfish** (working name; repo and board still say "Chess Mastery Platform") is a chess review, coach and learning platform built on the player's own games. Product plan, feature list and build order: `Chess Mastery Platform.md`. Work is tracked as GitHub issues on the project board.
 
 ## Stack
 - Vite 8 + React 19 + TypeScript 7 (strict). Mobile-first: everything must work on a ~375px-wide screen.
@@ -26,7 +26,7 @@ Agents: `issue-planner` → `builder` → `reviewer` + `tester`. Agents **open P
 
 - One issue = one branch `feat/<issue>-<short-slug>` = one PR whose body contains `Closes #<issue>`.
 - Branch from up-to-date `origin/main`. Never stack an issue on another unmerged branch; if a dependency isn't merged, stop and report it.
-- Dependency order: #1 → (#2, #3) → #4. v2 issues (#5–#7) wait for v1 to be merged; v3/v4 likewise.
+- Dependency order: #1 → (#2, #3, board drawing) → #4. Board drawing depends only on #1; keep it in its own component/hook so it does not clash with #2 in `GameViewer`. v2 issues (#5–#7) wait for v1 to be merged; v3/v4 likewise.
 - Commit messages end with: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
 - PR descriptions end with: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 
