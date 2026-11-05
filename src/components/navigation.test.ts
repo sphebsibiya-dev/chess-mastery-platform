@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest'
-import { clampPly, navReducer, type NavState } from './navigation'
+import { clampPly, navActionForKey, navReducer, type NavState } from './navigation'
+
+describe('navActionForKey', () => {
+  it('maps the viewer keys', () => {
+    expect(navActionForKey('ArrowLeft')).toEqual({ type: 'prev' })
+    expect(navActionForKey('ArrowRight')).toEqual({ type: 'next' })
+    expect(navActionForKey('ArrowUp')).toEqual({ type: 'first' })
+    expect(navActionForKey('ArrowDown')).toEqual({ type: 'last' })
+    expect(navActionForKey('Home')).toEqual({ type: 'first' })
+    expect(navActionForKey('End')).toEqual({ type: 'last' })
+  })
+
+  it('steps with Up/Down on a focused slider', () => {
+    expect(navActionForKey('ArrowUp', true)).toEqual({ type: 'next' })
+    expect(navActionForKey('ArrowDown', true)).toEqual({ type: 'prev' })
+    expect(navActionForKey('ArrowLeft', true)).toEqual({ type: 'prev' })
+    expect(navActionForKey('ArrowRight', true)).toEqual({ type: 'next' })
+    expect(navActionForKey('Home', true)).toEqual({ type: 'first' })
+    expect(navActionForKey('End', true)).toEqual({ type: 'last' })
+  })
+
+  it('ignores other keys', () => {
+    expect(navActionForKey('a')).toBeUndefined()
+    expect(navActionForKey('toString')).toBeUndefined()
+    expect(navActionForKey('Enter', true)).toBeUndefined()
+  })
+})
 
 const at = (ply: number, total = 10): NavState => ({ ply, total })
 

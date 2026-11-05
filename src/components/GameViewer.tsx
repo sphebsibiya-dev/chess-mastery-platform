@@ -12,7 +12,7 @@ import EvalGraph from './EvalGraph'
 import type { TimeTroubleEntry } from './KeyMoments'
 import MoveList from './MoveList'
 import NavControls from './NavControls'
-import { navReducer, type NavAction } from './navigation'
+import { navActionForKey, navReducer, type NavAction } from './navigation'
 import { useBoardDrawing } from './useBoardDrawing'
 import { useGameAnalysis } from './useGameAnalysis'
 
@@ -21,15 +21,6 @@ interface GameViewerProps {
 }
 
 const HIGHLIGHT: CSSProperties = { backgroundColor: 'rgba(255, 214, 10, 0.45)' }
-
-const KEY_ACTIONS: Record<string, NavAction> = {
-  ArrowLeft: { type: 'prev' },
-  ArrowRight: { type: 'next' },
-  ArrowUp: { type: 'first' },
-  ArrowDown: { type: 'last' },
-  Home: { type: 'first' },
-  End: { type: 'last' },
-}
 
 function isEditable(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
@@ -52,7 +43,10 @@ export default function GameViewer({ game }: GameViewerProps) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.altKey || event.ctrlKey || event.metaKey) return
       if (isEditable(event.target)) return
-      const action = KEY_ACTIONS[event.key]
+      // The eval graph is a slider with no key handler of its own; this single
+      // handler gives it slider semantics (Up/Down step) so nothing double-steps.
+      const onSlider = event.target instanceof HTMLElement && event.target.getAttribute('role') === 'slider'
+      const action = navActionForKey(event.key, onSlider)
       if (!action) return
       event.preventDefault()
       dispatch(action)

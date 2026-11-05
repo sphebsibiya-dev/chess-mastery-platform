@@ -31,7 +31,10 @@ export default function KeyMoments({ moments, trouble, moves, ply, onSelectPly }
       items.push({ ply: t.ply, key: `t${t.ply}`, text: timeTroubleText(move, t.clockSeconds), className: 'moment-time' })
     }
   }
+  // Stable sort: a key moment stays ahead of a time-trouble entry on the same ply.
   items.sort((a, b) => a.ply - b.ply)
+  // Only one item is "current", even when two share the current ply.
+  const currentKey = items.find((item) => item.ply === ply)?.key
 
   return (
     <section className="key-moments" aria-label="Key moments">
@@ -43,7 +46,7 @@ export default function KeyMoments({ moments, trouble, moves, ply, onSelectPly }
               <button
                 type="button"
                 className={`moment ${item.className}`}
-                aria-current={item.ply === ply ? 'true' : undefined}
+                aria-current={item.key === currentKey ? 'true' : undefined}
                 onClick={() => onSelectPly(item.ply)}
               >
                 {item.text}
