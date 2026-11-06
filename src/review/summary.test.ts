@@ -188,6 +188,16 @@ describe('countClasses', () => {
 })
 
 describe('summarizeReview', () => {
+  it('requires ten moves per side, including when Black moves first', () => {
+    const game = parseGame('[SetUp "1"]\n[FEN "4k3/8/8/8/8/8/8/4K3 b - - 0 1"]\n\n1... Kd7 2. Kd2 Ke8 3. Ke1 Kd7 4. Kd2 Ke8 5. Ke1 Kd7 6. Kd2 Ke8 7. Ke1 Kd7 8. Kd2 Ke8 9. Ke1 Kd7 10. Kd2 Ke8 *')
+    const reviews = game.moves.map((move) => review(move.ply, 'good'))
+    const report = summarizeReview(game, reviews, Array<number>(game.moves.length + 1).fill(50))
+    expect(game.moves.length).toBe(19)
+    expect(report.rating).toEqual({ b: 2900 })
+    expect(report.phases[2].range).toEqual({ start: 1, end: 19 })
+    expect(report.phases[2].accuracy).toEqual({ w: 100, b: 100 })
+  })
+
   it("Scholar's mate: opening only, too few moves for a rating", () => {
     const game = parseGame('1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0')
     const classes: MoveClass[] = ['book', 'book', 'best', 'good', 'best', 'blunder', 'best']

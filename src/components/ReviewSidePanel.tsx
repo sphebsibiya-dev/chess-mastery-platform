@@ -48,7 +48,9 @@ export default function ReviewSidePanel({ whiteWp, ...panelProps }: ReviewSidePa
             aria-controls={`${id}-panel`}
             aria-selected={tab === key}
             disabled={disabled}
-            onClick={() => setChosen(key)}
+            // Before completion Analysis is the only available view, not a
+            // preference that should suppress the automatic Summary switch.
+            onClick={() => setChosen(state.status === 'done' ? key : null)}
           >
             {label}
           </button>
