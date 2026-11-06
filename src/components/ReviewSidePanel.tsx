@@ -1,20 +1,41 @@
 import { useId, useMemo, useState, type ComponentProps, type KeyboardEvent } from 'react'
 import { summarizeReview } from '../review/summary'
 import AnalysisPanel from './AnalysisPanel'
+import ReviewCoach, { type ReviewCoachArrow } from './ReviewCoach'
 import ReviewSummary from './ReviewSummary'
 import { activeTab, tabForKey, type ReviewTab, type ReviewTabKey } from './reviewTabs'
 
 type ReviewSidePanelProps = ComponentProps<typeof AnalysisPanel> & {
   /** White's win% for every position analysed so far. */
   whiteWp: readonly number[]
+  /**
+   * Ask the board to show a preview FEN (Show best / Show follow-up / Retry).
+   * The optional arrows are drawn on `fen`'s position key once the preview
+   * settles; pass null to clear the preview.
+   */
+  onPreviewFen(fen: string | null, arrows?: ReviewCoachArrow[]): void
+  /** Ask the board to enter Retry mode. */
+  onRetry(): void
+  /** True while the board is in Retry mode (dragging enabled). */
+  retryActive: boolean
+  /** Feedback message after a Retry attempt, or null for none. */
+  retryMessage: string | null
 }
 
 /**
- * Summary | Analysis tabs under the board. Summary is the default once the
- * analysis is done; until then only Analysis (progress, errors) is available.
+ * Summary | Review tabs under the board.
+ * Summary is the default once analysis is done; until then only Review
+ * (progress, errors, guided coach) is available.
  */
-export default function ReviewSidePanel({ whiteWp, ...panelProps }: ReviewSidePanelProps) {
-  const { analysis, game, onSelectPly } = panelProps
+export default function ReviewSidePanel({
+  whiteWp,
+  onPreviewFen,
+  onRetry,
+  retryActive,
+  retryMessage,
+  ...panelProps
+}: ReviewSidePanelProps) {
+  const { analysis, game, ply, onSelectPly } = panelProps
   const { state } = analysis
   const [chosen, setChosen] = useState<ReviewTab | null>(null)
   const tab = activeTab(state.status, chosen)
@@ -31,9 +52,10 @@ export default function ReviewSidePanel({ whiteWp, ...panelProps }: ReviewSidePa
     setChosen('analysis')
   }
 
+  // The 'analysis' tab is now labelled 'Review' in the UI.
   const tabs: { key: ReviewTab; label: string; disabled: boolean }[] = [
     { key: 'summary', label: 'Summary', disabled: state.status !== 'done' },
-    { key: 'analysis', label: 'Analysis', disabled: false },
+    { key: 'analysis', label: 'Review', disabled: false },
   ]
 
   const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, current: ReviewTab) => {
@@ -44,6 +66,23 @@ export default function ReviewSidePanel({ whiteWp, ...panelProps }: ReviewSidePa
     setChosen(state.status === 'done' ? target : null)
     document.getElementById(`${id}-tab-${target}`)?.focus()
   }
+
+  // Current move and its review (for the coach card).
+  const currentMove = ply > 0 ? game.moves[ply - 1] : undefined
+  const currentReview = reviews?.[ply - 1]
+  const positions = analysis.positions
+  const posBefore = positions[ply - 1]
+  const posAfter = positions[ply]
+  const opening = state.status === 'done' ? state.opening : undefined
+
+  const showCoach =
+    tab === 'analysis' &&
+    state.status === 'done' &&
+    ply > 0 &&
+    currentMove !== undefined &&
+    currentReview !== undefined &&
+    posBefore !== undefined &&
+    posAfter !== undefined
 
   return (
     <div className="review-side">
@@ -58,8 +97,6 @@ export default function ReviewSidePanel({ whiteWp, ...panelProps }: ReviewSidePa
             aria-selected={tab === key}
             tabIndex={tab === key ? 0 : -1}
             disabled={disabled}
-            // Before completion Analysis is the only available view, not a
-            // preference that should suppress the automatic Summary switch.
             onClick={() => setChosen(state.status === 'done' ? key : null)}
             onKeyDown={(event) => onTabKeyDown(event, key)}
           >
@@ -78,7 +115,26 @@ export default function ReviewSidePanel({ whiteWp, ...panelProps }: ReviewSidePa
             onStartReview={startReview}
           />
         ) : (
-          <AnalysisPanel {...panelProps} />
+          <>
+            <AnalysisPanel {...panelProps} />
+            {showCoach && (
+              <ReviewCoach
+                key={ply}
+                review={currentReview}
+                move={currentMove}
+                posBefore={posBefore}
+                posAfter={posAfter}
+                opening={opening}
+                retryActive={retryActive}
+                retryMessage={retryMessage}
+                onPreviewFen={onPreviewFen}
+                onRetry={onRetry}
+                onSelectPly={onSelectPly}
+                ply={ply}
+                total={game.moves.length}
+              />
+            )}
+          </>
         )}
       </div>
     </div>
