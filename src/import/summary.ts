@@ -31,5 +31,5 @@ export function outcomeFor(result: Exclude<GameResult, '*'>, color: 'w' | 'b'): 
  * Throws an Error with a user-readable message if the PGN can't be read.
  */
 export function summaryToGame(summary: GameSummary): ImportedGame {
-  return parseGame(summary.pgn, { source: summary.source, id: summary.id })
+  return parseGame(summary.pgn, { source: summary.source, id: summary.id, userColor: summary.userColor })
 }

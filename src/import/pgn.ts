@@ -141,6 +141,8 @@ export interface ParseGameOptions {
   source?: ImportSource
   /** Defaults to a hash of the PGN text. */
   id?: string
+  /** Which side the user played; threaded through to the ImportedGame. */
+  userColor?: 'w' | 'b'
 }
 
 /**
@@ -186,7 +188,7 @@ export function parseGame(pgn: string, options: ParseGameOptions = {}): Imported
   })
 
   const headers = buildHeaders(chess.getHeaders())
-  return {
+  const game: ImportedGame = {
     id: options.id ?? hash(pgn),
     source: options.source ?? 'pgn',
     headers,
@@ -194,6 +196,8 @@ export function parseGame(pgn: string, options: ParseGameOptions = {}): Imported
     moves,
     pgn,
   }
+  if (options.userColor !== undefined) game.userColor = options.userColor
+  return game
 }
 
 /**

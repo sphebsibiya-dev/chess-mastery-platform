@@ -141,6 +141,10 @@ button.primary:hover { background: #46895a; }
 .nav-controls button { font-size: 1.1rem; }
 
 /* Board drawing toolbar: one row at 375px (Draw + 4 swatches + Clear). */
+/* Flip board button row: sits between nav controls and draw toolbar. */
+.board-flip-row { display: flex; justify-content: flex-end; margin-top: 6px; }
+.flip-board-btn { padding: 6px 12px; min-height: 40px; font-size: 0.875rem; }
+
 .draw-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .draw-toolbar button { padding: 8px 10px; }
 .draw-toggle[aria-pressed='true'] { background: #3d7a4c; border-color: #7fc48f; }

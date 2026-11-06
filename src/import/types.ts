@@ -51,6 +51,8 @@ export interface ImportedGame {
   moves: ImportedMove[]
   /** Original single-game PGN. */
   pgn: string
+  /** Which side the user played; undefined for pasted PGN where the user is unknown. */
+  userColor?: 'w' | 'b'
 }
 
 export type ImportResult =
