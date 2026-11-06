@@ -65,9 +65,24 @@ export default function GameViewer({ game }: GameViewerProps) {
    * (they are stored here to avoid a timing race with useBoardDrawing's reset).
    */
   const pendingArrowsRef = useRef<ReviewCoachArrow[] | null>(null)
+  /**
+   * Always holds the latest ply value so IIFE closures can read it after an
+   * async gap without depending on a stale captured value.
+   * Initialized to 0; updated synchronously after `ply` is derived below.
+   */
+  const plyRef = useRef(0)
+  /**
+   * Generation counter incremented whenever the guided-review context is fully
+   * invalidated (ply change or explicit clear). An async Retry IIFE captures
+   * the generation at drop-time and bails out if it has changed by the time the
+   * engine responds, so a stale result never lands on the wrong move's card.
+   */
+  const retryGenRef = useRef(0)
 
-  // Clear guided-review state whenever the ply changes.
+  // Clear guided-review state whenever the ply changes; also bump the
+  // generation so any in-flight eval resolves as a no-op.
   useEffect(() => {
+    retryGenRef.current++
     setPreviewFen(null)
     setRetryActive(false)
     setRetryMessage(null)
@@ -88,6 +103,9 @@ export default function GameViewer({ game }: GameViewerProps) {
   }, [])
 
   const { ply } = nav
+  // Keep the ref in sync so IIFE closures always see the current ply.
+  plyRef.current = ply
+
   const reviews = analysis.state.status === 'done' ? analysis.state.reviews : undefined
   const classes = reviews?.map((r) => r.cls)
   const whiteWp = useMemo(() => analysis.positions.map((p) => winPercent(p.eval)), [analysis.positions])
@@ -151,9 +169,18 @@ export default function GameViewer({ game }: GameViewerProps) {
 
   const handlePreviewFen = useCallback(
     (fen: string | null, arrows?: ReviewCoachArrow[]) => {
-      pendingArrowsRef.current = arrows ?? null
-      setPreviewFen(fen)
-      setRetryActive(false)
+      if (fen === null) {
+        // Explicit clear (e.g. tab switch): invalidate any in-flight eval.
+        retryGenRef.current++
+        pendingArrowsRef.current = null
+        setPreviewFen(null)
+        setRetryActive(false)
+        setRetryMessage(null)
+      } else {
+        pendingArrowsRef.current = arrows ?? null
+        setPreviewFen(fen)
+        setRetryActive(false)
+      }
     },
     [],
   )
@@ -204,25 +231,30 @@ export default function GameViewer({ game }: GameViewerProps) {
         return true
       }
 
+      // FIX #3: Disable dragging immediately so a second drop cannot fire while
+      // the engine is evaluating. Only one eval should be in flight at a time.
+      setRetryActive(false)
+
+      // FIX #1: Capture both ply and generation counter at drop time.
+      // The IIFE bails out if either has changed when the eval resolves, so a
+      // stale result never lands on the wrong move's coach card.
+      const dropPly = plyRef.current
+      const dropGen = ++retryGenRef.current
+
       // Async evaluation path.
       void (async () => {
         try {
           const stm = chess.turn() as 'w' | 'b'
           const result = await retryEngine.evaluate(resultFen)
+          // Guard: discard if the user navigated or cleared the coach while waiting.
+          if (plyRef.current !== dropPly || retryGenRef.current !== dropGen) return
           const evalAfter = toWhitePov(result.score, stm)
           const wpBefore = moverWinPercent(posB.eval, gMove.color)
           const wpAfterRetry = moverWinPercent(evalAfter, gMove.color)
           const loss = Math.max(0, wpBefore - wpAfterRetry)
-          if (acceptsRetry(loss)) {
-            setRetryActive(false)
-            setRetryMessage(null)
-          } else {
-            setRetryActive(false)
-            setRetryMessage('Not quite, try again.')
-          }
+          setRetryMessage(acceptsRetry(loss) ? null : 'Not quite, try again.')
         } catch {
-          // Engine error – accept gracefully so the user is not stuck.
-          setRetryActive(false)
+          // Engine error – silently discard; retryActive is already false.
         }
       })()
 

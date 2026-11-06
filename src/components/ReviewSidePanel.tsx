@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ComponentProps, type KeyboardEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from 'react'
 import { summarizeReview } from '../review/summary'
 import AnalysisPanel from './AnalysisPanel'
 import ReviewCoach, { type ReviewCoachArrow } from './ReviewCoach'
@@ -83,6 +83,18 @@ export default function ReviewSidePanel({
     currentReview !== undefined &&
     posBefore !== undefined &&
     posAfter !== undefined
+
+  // FIX #2: When the coach transitions from visible to hidden (tab switch to
+  // Summary, ply → 0, or analysis reset), clear all guided-review board state so
+  // the board does not stay at a stale preview FEN and dragging is disabled.
+  const prevShowCoachRef = useRef(showCoach)
+  useEffect(() => {
+    const wasShown = prevShowCoachRef.current
+    prevShowCoachRef.current = showCoach
+    if (wasShown && !showCoach) {
+      onPreviewFen(null)
+    }
+  }, [showCoach, onPreviewFen])
 
   return (
     <div className="review-side">
