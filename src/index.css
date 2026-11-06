@@ -127,8 +127,12 @@ button.primary:hover { background: #46895a; }
 .load-more { width: 100%; margin-top: 10px; }
 
 /* Viewer: single column on phones */
+/* DOM order: viewer-board (center), viewer-side (right/coach), viewer-moves (left/list) */
+/* Mobile stack: center → side → moves */
 .viewer { display: flex; flex-direction: column; gap: 12px; }
-.viewer-board { min-width: 0; }
+.viewer-board { min-width: 0; order: 1; }
+.viewer-side { min-width: 0; order: 2; }
+.viewer-moves { order: 3; }
 .board-wrap { width: 100%; max-width: 560px; margin: 0 auto; }
 .players { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-weight: 600; overflow-wrap: anywhere; }
 .players .result { flex: none; color: #9aa69f; }
@@ -397,12 +401,24 @@ button.primary:hover { background: #46895a; }
 .time-low-clock { background: #b06ad0; }
 .time-too-fast { background: #8a6d1e; }
 
-/* Tablet and up: board left, moves right */
+/* Tablet (768-1079px): move-list left, board center+coach stacked right */
 @media (min-width: 768px) {
-  .viewer { flex-direction: row; align-items: flex-start; }
-  .viewer-board { flex: 1 1 auto; max-width: 560px; }
-  .viewer-moves { flex: 0 0 260px; }
+  .viewer { flex-direction: row; align-items: flex-start; flex-wrap: wrap; }
+  .viewer-board { flex: 1 1 auto; max-width: 560px; order: 2; }
+  .viewer-side { flex: 0 0 260px; order: 3; }
+  .viewer-moves { flex: 0 0 260px; order: 1; }
   .move-list { max-height: 520px; }
+}
+
+/* Desktop (1080px+): 3-column layout: moves | board | side */
+@media (min-width: 1080px) {
+  .app { max-width: 1200px; }
+  .viewer { flex-wrap: nowrap; align-items: flex-start; gap: 16px; }
+  .viewer-moves { flex: 0 0 220px; order: 1; }
+  .viewer-board { flex: 1 1 auto; max-width: 560px; order: 2; }
+  .viewer-side { flex: 0 0 320px; order: 3; }
+  /* In the wide layout the move list can be taller since it sits in its own column */
+  .move-list { max-height: calc(100vh - 120px); }
 }
 
 /* Eval bar and board icons */
