@@ -230,12 +230,51 @@ button.primary:hover { background: #46895a; }
 .import-another { margin-top: 16px; }
 .analysis-clock { font-size: 0.875rem; }
 
-/* Summary | Analysis tabs under the board */
+/* Summary | Review tabs under the board */
 .review-side { margin-top: 10px; }
 .review-side .analysis-panel { margin-top: 0; }
 .review-tabs { display: flex; gap: 6px; margin-bottom: 6px; }
 .review-tabs [role='tab'] { flex: 1 1 0; min-width: 0; }
 .review-tabs [role='tab'][aria-selected='true'] { background: #2f4a37; border-color: #7fc48f; }
+
+/* Guided-review coach card */
+.review-coach {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid #2c3530;
+  border-radius: 8px;
+  background: #1d2320;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.review-coach-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.review-coach-title { font-weight: 600; }
+.review-coach-explain { margin: 0; overflow-wrap: anywhere; line-height: 1.5; }
+.review-coach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.review-coach-btn { padding: 6px 12px; min-height: 40px; font-size: 0.875rem; }
+.review-coach-btn[aria-pressed='true'] { background: #2f4a37; border-color: #7fc48f; }
+.review-coach-retry { margin: 0; color: #f0c36d; font-size: 0.875rem; }
+.review-coach-nav {
+  display: flex;
+  gap: 6px;
+}
+.review-coach-nav .review-coach-btn { flex: 1 1 0; justify-content: center; }
+/* On narrow screens the action buttons may need to stack */
+@media (max-width: 375px) {
+  .review-coach-actions { flex-direction: column; }
+  .review-coach-actions .review-coach-btn { width: 100%; }
+  .review-coach-nav .review-coach-btn { flex: 1 1 calc(50% - 3px); }
+}
 
 /* Review summary report */
 .review-summary {

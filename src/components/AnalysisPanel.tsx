@@ -1,8 +1,7 @@
 import { uciToSan } from '../chess/uci'
 import type { ImportedGame } from '../import/types'
 import type { KeyMoment } from '../review/keyMoments'
-import { CLASS_INFO, formatEval, showsBestMove } from './analysisView'
-import ClassificationBadge from './ClassificationBadge'
+import { formatEval } from './analysisView'
 import KeyMoments, { type TimeTroubleEntry } from './KeyMoments'
 import type { GameAnalysisHandle } from './useGameAnalysis'
 
@@ -33,8 +32,6 @@ export default function AnalysisPanel({
   const { state, positions, retry } = analysis
   const position = positions[ply]
   const bestSan = position?.bestMove ? uciToSan(position.fen, position.bestMove) : undefined
-  const move = ply > 0 ? game.moves[ply - 1] : undefined
-  const review = state.status === 'done' && ply > 0 ? state.reviews[ply - 1] : undefined
 
   return (
     <section className="analysis-panel" aria-label="Engine analysis">
@@ -76,19 +73,6 @@ export default function AnalysisPanel({
         )}
         {position?.eval.kind === 'mate' && position.eval.in === 0 && <span>Checkmate</span>}
       </p>
-
-      {review && move && (
-        <p className="analysis-review">
-          <ClassificationBadge cls={review.cls} />
-          <span>
-            {move.moveNumber}
-            {move.color === 'w' ? '.' : '...'} {move.san} is {CLASS_INFO[review.cls].phrase}
-            {showsBestMove(review.cls) && review.bestMoveSan
-              ? `, best was ${review.bestMoveSan}`
-              : ''}
-          </span>
-        </p>
-      )}
 
       {clockText && <p className="analysis-clock muted">{clockText}</p>}
 
