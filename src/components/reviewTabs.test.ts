@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeTab, countButtonLabel } from './reviewTabs'
+import { activeTab, countButtonLabel, tabForKey } from './reviewTabs'
 
 describe('activeTab', () => {
   it('shows Analysis until the review is done', () => {
@@ -12,6 +12,20 @@ describe('activeTab', () => {
     expect(activeTab('done', null)).toBe('summary')
     expect(activeTab('done', 'analysis')).toBe('analysis')
     expect(activeTab('done', 'summary')).toBe('summary')
+  })
+})
+
+describe('tabForKey', () => {
+  it('moves between enabled tabs and supports Home and End', () => {
+    expect(tabForKey('summary', 'ArrowRight', true)).toBe('analysis')
+    expect(tabForKey('analysis', 'ArrowLeft', true)).toBe('summary')
+    expect(tabForKey('analysis', 'Home', true)).toBe('summary')
+    expect(tabForKey('summary', 'End', true)).toBe('analysis')
+  })
+
+  it('keeps focus on Analysis while Summary is disabled', () => {
+    expect(tabForKey('analysis', 'ArrowLeft', false)).toBe('analysis')
+    expect(tabForKey('analysis', 'Home', false)).toBe('analysis')
   })
 })
 
