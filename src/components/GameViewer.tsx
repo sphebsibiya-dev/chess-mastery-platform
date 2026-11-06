@@ -344,6 +344,8 @@ export default function GameViewer({ game }: GameViewerProps) {
             pending={analysis.state.status !== 'done'}
           />
         )}
+      </div>
+      <div className="viewer-side">
         <ReviewSidePanel
           analysis={analysis}
           whiteWp={whiteWp}
