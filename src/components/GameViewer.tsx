@@ -4,7 +4,6 @@ import type { ImportedGame } from '../import/types'
 import { findKeyMoments } from '../review/keyMoments'
 import { moveTimes } from '../review/timeTrouble'
 import { winPercent } from '../review/winProbability'
-import AnalysisPanel from './AnalysisPanel'
 import { engineArrows, graphValueText, moveClockText, timeBadges } from './analysisView'
 import { classIconFor } from './boardClassIcon'
 import { mergeArrows, mergeSquareStyles } from './drawing'
@@ -15,6 +14,7 @@ import type { TimeTroubleEntry } from './KeyMoments'
 import MoveList from './MoveList'
 import NavControls from './NavControls'
 import { navActionForKey, navReducer, type NavAction } from './navigation'
+import ReviewSidePanel from './ReviewSidePanel'
 import { useBoardDrawing } from './useBoardDrawing'
 import { useClassIconRenderer } from './useClassIconRenderer'
 import { useGameAnalysis } from './useGameAnalysis'
@@ -147,8 +147,9 @@ export default function GameViewer({ game }: GameViewerProps) {
             pending={analysis.state.status !== 'done'}
           />
         )}
-        <AnalysisPanel
+        <ReviewSidePanel
           analysis={analysis}
+          whiteWp={whiteWp}
           game={game}
           ply={ply}
           moments={moments}
