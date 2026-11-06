@@ -6,14 +6,17 @@ import { moveTimes } from '../review/timeTrouble'
 import { winPercent } from '../review/winProbability'
 import AnalysisPanel from './AnalysisPanel'
 import { engineArrows, graphValueText, moveClockText, timeBadges } from './analysisView'
+import { classIconFor } from './boardClassIcon'
 import { mergeArrows, mergeSquareStyles } from './drawing'
 import DrawToolbar from './DrawToolbar'
+import EvalBar from './EvalBar'
 import EvalGraph from './EvalGraph'
 import type { TimeTroubleEntry } from './KeyMoments'
 import MoveList from './MoveList'
 import NavControls from './NavControls'
 import { navActionForKey, navReducer, type NavAction } from './navigation'
 import { useBoardDrawing } from './useBoardDrawing'
+import { useClassIconRenderer } from './useClassIconRenderer'
 import { useGameAnalysis } from './useGameAnalysis'
 
 interface GameViewerProps {
@@ -86,6 +89,9 @@ export default function GameViewer({ game }: GameViewerProps) {
     ? { [current.from]: HIGHLIGHT, [current.to]: HIGHLIGHT }
     : {}
   const drawing = useBoardDrawing(position)
+  const boardSquareStyles = mergeSquareStyles(squareStyles, drawing.squareStyles)
+  const icon = classIconFor(current, classes?.[ply - 1])
+  const squareRenderer = useClassIconRenderer(icon, boardSquareStyles)
 
   const { headers } = game
   const status = current
@@ -101,18 +107,22 @@ export default function GameViewer({ game }: GameViewerProps) {
           </span>
           <span className="result">{headers.result ?? '*'}</span>
         </div>
-        <div className="board-wrap">
-          <Chessboard
-            options={{
-              id: 'viewer-board',
-              position,
-              allowDragging: false,
-              squareStyles: mergeSquareStyles(squareStyles, drawing.squareStyles),
-              arrows: mergeArrows(bestArrows, drawing.arrows),
-              ...drawing.boardOptions,
-              animationDurationInMs: 150,
-            }}
-          />
+        <div className="board-row">
+          {analysis.state.status !== 'error' && <EvalBar evaluation={analysis.positions[ply]?.eval} />}
+          <div className="board-wrap">
+            <Chessboard
+              options={{
+                id: 'viewer-board',
+                position,
+                allowDragging: false,
+                squareStyles: boardSquareStyles,
+                squareRenderer,
+                arrows: mergeArrows(bestArrows, drawing.arrows),
+                ...drawing.boardOptions,
+                animationDurationInMs: 150,
+              }}
+            />
+          </div>
         </div>
         <div className="viewer-status" aria-live="polite">
           {status}
