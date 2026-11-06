@@ -29,6 +29,15 @@ interface GameViewerProps {
   game: ImportedGame
 }
 
+/**
+ * Returns the board orientation the game should start in.
+ * Games imported from chess.com or Lichess default to the user's side;
+ * pasted PGN (where `userColor` is undefined) defaults to white.
+ */
+export function initialOrientation(game: ImportedGame): 'white' | 'black' {
+  return game.userColor === 'b' ? 'black' : 'white'
+}
+
 const HIGHLIGHT: CSSProperties = { backgroundColor: 'rgba(255, 214, 10, 0.45)' }
 
 function isEditable(target: EventTarget | null): boolean {
@@ -48,6 +57,13 @@ export default function GameViewer({ game }: GameViewerProps) {
   const navigate = useCallback((action: NavAction) => dispatch(action), [])
   const analysis = useGameAnalysis(game)
   const retryEngine = useReviewEngine()
+
+  // Board orientation: auto-sets to the user's side for online games, white for pasted PGN.
+  const [orientation, setOrientation] = useState<'white' | 'black'>(initialOrientation(game))
+  const toggleOrientation = useCallback(
+    () => setOrientation((o) => (o === 'white' ? 'black' : 'white')),
+    [],
+  )
 
   // --- Guided-review state ---
   /**
@@ -273,17 +289,22 @@ export default function GameViewer({ game }: GameViewerProps) {
       <div className="viewer-board">
         <div className="players">
           <span>
-            {player(headers.white, headers.whiteElo)} vs {player(headers.black, headers.blackElo)}
+            {orientation === 'black'
+              ? <>{player(headers.black, headers.blackElo)} vs {player(headers.white, headers.whiteElo)}</>
+              : <>{player(headers.white, headers.whiteElo)} vs {player(headers.black, headers.blackElo)}</>}
           </span>
           <span className="result">{headers.result ?? '*'}</span>
         </div>
         <div className="board-row">
-          {analysis.state.status !== 'error' && <EvalBar evaluation={analysis.positions[ply]?.eval} />}
+          {analysis.state.status !== 'error' && (
+            <EvalBar evaluation={analysis.positions[ply]?.eval} orientation={orientation} />
+          )}
           <div className="board-wrap">
             <Chessboard
               options={{
                 id: 'viewer-board',
                 position: boardPosition,
+                boardOrientation: orientation,
                 allowDragging: retryActive,
                 onPieceDrop: retryActive ? handlePieceDrop : undefined,
                 squareStyles: boardSquareStyles,
@@ -299,6 +320,11 @@ export default function GameViewer({ game }: GameViewerProps) {
           {status}
         </div>
         <NavControls ply={ply} total={nav.total} onNavigate={navigate} />
+        <div className="board-flip-row">
+          <button type="button" className="flip-board-btn" onClick={toggleOrientation} aria-label="Flip board">
+            ⇅ Flip board
+          </button>
+        </div>
         <DrawToolbar
           drawMode={drawing.drawMode}
           onDrawModeChange={drawing.setDrawMode}
