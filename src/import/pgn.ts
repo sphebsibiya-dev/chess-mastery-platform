@@ -176,6 +176,7 @@ export function parseGame(pgn: string, options: ParseGameOptions = {}): Imported
       to: m.to,
       fenBefore: m.before,
       fenAfter: m.after,
+      flags: m.flags,
     }
     if (m.promotion) move.promotion = m.promotion as ImportedMove['promotion']
     if (rawComment !== undefined) {

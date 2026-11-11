@@ -1,3 +1,4 @@
+import { Chess } from 'chess.js'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
 import { terminalEval, toWhitePov } from '../engine/evaluate'
@@ -25,6 +26,7 @@ import { useBoardDrawing } from './useBoardDrawing'
 import { useClassIconRenderer } from './useClassIconRenderer'
 import { useGameAnalysis } from './useGameAnalysis'
 import { useReviewEngine } from './useReviewEngine'
+import { playMoveSound, setSoundMuted } from '../sound/moveSound'
 
 interface GameViewerProps {
   game: ImportedGame
@@ -58,6 +60,33 @@ export default function GameViewer({ game }: GameViewerProps) {
   const navigate = useCallback((action: NavAction) => dispatch(action), [])
   const analysis = useGameAnalysis(game)
   const retryEngine = useReviewEngine()
+  const [muted, setMuted] = useState(() => {
+    try { return window.localStorage.getItem('mogfish-sounds-muted') === 'true' } catch { return false }
+  })
+
+  useEffect(() => { setSoundMuted(muted) }, [muted])
+
+  // Navigation is the single move-application path for step-through review.
+  // Replaying the move from its FEN gives us chess.js flags and post-move check state.
+  useEffect(() => {
+    if (nav.ply === 0) return
+    const imported = game.moves[nav.ply - 1]
+    if (!imported) return
+    const chess = new Chess(imported.fenBefore)
+    try {
+      const move = chess.move({ from: imported.from, to: imported.to, promotion: imported.promotion })
+      playMoveSound(move, chess.inCheck())
+    } catch { /* malformed imported games are already handled by the importer */ }
+  }, [game.moves, nav.ply])
+
+  const toggleMuted = useCallback(() => {
+    setMuted((value) => {
+      const next = !value
+      setSoundMuted(next)
+      try { window.localStorage.setItem('mogfish-sounds-muted', String(next)) } catch { /* storage is optional */ }
+      return next
+    })
+  }, [])
 
   // Board orientation: auto-sets to the user's side for online games, white for pasted PGN.
   const [orientation, setOrientation] = useState<'white' | 'black'>(initialOrientation(game))
@@ -274,6 +303,11 @@ export default function GameViewer({ game }: GameViewerProps) {
       const free = applyFreeMove(sourceFen, sourceSquare, targetSquare)
       if (!free) return false // illegal move: snap back
 
+      // Recreate the accepted move with chess.js to get its flags and check state.
+      const moveChess = new Chess(sourceFen)
+      const played = moveChess.move({ from: sourceSquare, to: targetSquare })
+      playMoveSound(played, moveChess.inCheck())
+
       // Scored Coach Retry only applies to the move actually under review, i.e.
       // the free move was played from the ply's "before" position.
       const scoredRetry = retryActive && ply > 0 && sourceFen === game.moves[ply - 1]?.fenBefore
@@ -413,6 +447,9 @@ export default function GameViewer({ game }: GameViewerProps) {
         <div className="board-flip-row">
           <button type="button" className="flip-board-btn" onClick={toggleOrientation} aria-label="Flip board">
             ⇅ Flip board
+          </button>
+          <button type="button" className="sound-toggle" onClick={toggleMuted} aria-pressed={muted}>
+            {muted ? '🔇 Sound off' : '🔊 Sound on'}
           </button>
         </div>
         <DrawToolbar
