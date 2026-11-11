@@ -1,9 +1,10 @@
-import { Chess } from 'chess.js'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
-import { toWhitePov } from '../engine/evaluate'
+import { terminalEval, toWhitePov } from '../engine/evaluate'
+import type { Eval } from '../engine/types'
 import type { ImportedGame } from '../import/types'
 import { acceptsRetry } from '../review/explain'
+import { applyFreeMove } from '../review/freeMove'
 import { findKeyMoments } from '../review/keyMoments'
 import { moveTimes } from '../review/timeTrouble'
 import { moverWinPercent, winPercent } from '../review/winProbability'
@@ -77,6 +78,15 @@ export default function GameViewer({ game }: GameViewerProps) {
   /** Feedback shown after a Retry attempt. */
   const [retryMessage, setRetryMessage] = useState<string | null>(null)
   /**
+   * Unscored free-move exploration state. Dragging the side-to-move piece is
+   * always allowed (not gated behind Retry); the resulting position is held in
+   * `previewFen`, its SAN shown in the status line, and a fresh on-demand eval
+   * (White POV) stored in `freeEval` while `freeEvalPending` gates the EvalBar.
+   */
+  const [freeMoveSan, setFreeMoveSan] = useState<string | null>(null)
+  const [freeEval, setFreeEval] = useState<Eval | null>(null)
+  const [freeEvalPending, setFreeEvalPending] = useState(false)
+  /**
    * Arrows to draw once the preview position has been applied to the board
    * (they are stored here to avoid a timing race with useBoardDrawing's reset).
    */
@@ -94,15 +104,35 @@ export default function GameViewer({ game }: GameViewerProps) {
    * engine responds, so a stale result never lands on the wrong move's card.
    */
   const retryGenRef = useRef(0)
+  /**
+   * Always holds the currently displayed board FEN (`previewFen ?? position`)
+   * so the free-move drop handler can chain successive moves from whatever is on
+   * the board without listing `boardPosition` (declared later) as a dependency.
+   */
+  const boardPositionRef = useRef(game.startFen)
+  /**
+   * Aborts the in-flight free-move engine search when it is superseded (a newer
+   * drag) or abandoned (ply change / preview clear), so the serialised engine
+   * queue does not run stale searches to full depth.
+   */
+  const freeEvalAbortRef = useRef<AbortController | null>(null)
+  const abortFreeEval = useCallback(() => {
+    freeEvalAbortRef.current?.abort()
+    freeEvalAbortRef.current = null
+  }, [])
 
   // Clear guided-review state whenever the ply changes; also bump the
   // generation so any in-flight eval resolves as a no-op.
   useEffect(() => {
     retryGenRef.current++
+    abortFreeEval()
     setPreviewFen(null)
     setRetryActive(false)
     setRetryMessage(null)
-  }, [nav.ply])
+    setFreeMoveSan(null)
+    setFreeEval(null)
+    setFreeEvalPending(false)
+  }, [nav.ply, abortFreeEval])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -148,6 +178,9 @@ export default function GameViewer({ game }: GameViewerProps) {
 
   // Board position: show the preview FEN when active, otherwise the game position.
   const boardPosition = previewFen ?? position
+  // Keep the ref in sync so the free-move drop handler always reads the
+  // position currently on the board (enabling chained free moves).
+  boardPositionRef.current = boardPosition
 
   const squareStyles: Record<string, CSSProperties> = current
     ? { [current.from]: HIGHLIGHT, [current.to]: HIGHLIGHT }
@@ -185,6 +218,8 @@ export default function GameViewer({ game }: GameViewerProps) {
 
   const handlePreviewFen = useCallback(
     (fen: string | null, arrows?: ReviewCoachArrow[]) => {
+      // A coach preview or explicit clear supersedes any in-flight free eval.
+      abortFreeEval()
       if (fen === null) {
         // Explicit clear (e.g. tab switch): invalidate any in-flight eval.
         retryGenRef.current++
@@ -192,13 +227,19 @@ export default function GameViewer({ game }: GameViewerProps) {
         setPreviewFen(null)
         setRetryActive(false)
         setRetryMessage(null)
+        setFreeMoveSan(null)
+        setFreeEval(null)
+        setFreeEvalPending(false)
       } else {
         pendingArrowsRef.current = arrows ?? null
         setPreviewFen(fen)
         setRetryActive(false)
+        setFreeMoveSan(null)
+        setFreeEval(null)
+        setFreeEvalPending(false)
       }
     },
-    [],
+    [abortFreeEval],
   )
 
   const handleRetry = useCallback(() => {
@@ -212,77 +253,126 @@ export default function GameViewer({ game }: GameViewerProps) {
   }, [ply, game.moves])
 
   /**
-   * Synchronous drop handler: accepts or rejects the dropped piece.
-   * Async engine evaluation for non-trivial moves is started via an IIFE.
-   * The function returns true immediately in both cases so the piece is not
-   * snapped back; feedback comes via retryMessage once evaluation finishes.
+   * Free-move drop handler, always active on every position.
+   *
+   * Any legal move for the side to move is accepted (unscored): the resulting
+   * position is held transiently in `previewFen`, its SAN shown in the status
+   * line, and a fresh on-demand Stockfish eval of the new FEN drives the EvalBar.
+   * Illegal moves return false so react-chessboard snaps the piece back. The
+   * game's recorded line is never mutated, so step-through stays intact.
+   *
+   * When a scored Coach "Retry" is active (`retryActive` at a real ply), the same
+   * eval additionally feeds the Coach accept/reject message — that feature is an
+   * additive layer on top of the always-available free move.
    */
   const handlePieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { piece?: unknown; sourceSquare: string; targetSquare: string | null }): boolean => {
-      if (!retryActive || ply === 0 || targetSquare === null) return false
-      const gMove = game.moves[ply - 1]
-      if (!gMove) return false
+      if (targetSquare === null) return false
 
-      const chess = new Chess(gMove.fenBefore)
-      let played: { lan: string } | undefined
-      try {
-        played = chess.move({ from: sourceSquare, to: targetSquare as string, promotion: 'q' })
-      } catch {
-        return false
+      // Source = the position currently on the board, so free moves chain.
+      const sourceFen = boardPositionRef.current
+      const free = applyFreeMove(sourceFen, sourceSquare, targetSquare)
+      if (!free) return false // illegal move: snap back
+
+      // Scored Coach Retry only applies to the move actually under review, i.e.
+      // the free move was played from the ply's "before" position.
+      const scoredRetry = retryActive && ply > 0 && sourceFen === game.moves[ply - 1]?.fenBefore
+      const posB = scoredRetry ? analysis.positions[ply - 1] : undefined
+      const gMove = scoredRetry ? game.moves[ply - 1] : undefined
+
+      // Scoring helper for a scored Retry: compare the mover's win% before and
+      // after the attempt and accept small losses.
+      const scoreRetry = (evalAfter: Eval) => {
+        if (!posB || !gMove) return
+        const wpBefore = moverWinPercent(posB.eval, gMove.color)
+        const wpAfterRetry = moverWinPercent(evalAfter, gMove.color)
+        const loss = Math.max(0, wpBefore - wpAfterRetry)
+        setRetryMessage(acceptsRetry(loss) ? null : 'Not quite, try again.')
       }
 
-      const resultFen = chess.fen()
-      const { lan } = played
-      const posB = analysis.positions[ply - 1]
-      if (!posB) return false
+      // A newer drop supersedes any in-flight free-move search.
+      abortFreeEval()
 
-      // Show the result regardless; we decide acceptance asynchronously when needed.
-      setPreviewFen(resultFen)
+      // Show the resulting position. Suppress the "Free move" label during a
+      // scored Retry so the Coach accept/reject messaging reads cleanly.
+      pendingArrowsRef.current = null
+      setPreviewFen(free.fen)
+      setFreeMoveSan(scoredRetry ? null : free.san)
+      // Disable the scored Retry so a second drop cannot start another scored
+      // eval; dragging itself stays available for further free exploration.
+      setRetryActive(false)
+      setRetryMessage(null)
 
-      // Immediate acceptance: best move or in the stored top lines.
-      const isInLines = posB.bestMove === lan || posB.lines.some((l) => l.move === lan)
-      if (isInLines) {
-        setRetryActive(false)
-        setRetryMessage(null)
+      // Scored-retry fast path: a move that is the engine best or in the stored
+      // top lines is accepted instantly from the stored eval (no engine call).
+      if (scoredRetry && posB) {
+        const lineEval = posB.lines.find((l) => l.move === free.lan)?.eval
+        if (lineEval) {
+          setFreeEval(lineEval)
+          setFreeEvalPending(false)
+          scoreRetry(lineEval)
+          return true
+        }
+      }
+
+      // Terminal position (checkmate / stalemate / dead draw): score without the
+      // engine, which has no move to search and would otherwise error.
+      const terminal = terminalEval(free.fen)
+      if (terminal) {
+        setFreeEval(terminal)
+        setFreeEvalPending(false)
+        if (scoredRetry) scoreRetry(terminal)
         return true
       }
 
-      // FIX #3: Disable dragging immediately so a second drop cannot fire while
-      // the engine is evaluating. Only one eval should be in flight at a time.
-      setRetryActive(false)
+      // Non-terminal move: fresh on-demand eval, abortable and generation-guarded.
+      setFreeEval(null)
+      setFreeEvalPending(true)
+      const controller = new AbortController()
+      freeEvalAbortRef.current = controller
 
-      // FIX #1: Capture both ply and generation counter at drop time.
-      // The IIFE bails out if either has changed when the eval resolves, so a
-      // stale result never lands on the wrong move's coach card.
+      // Capture ply + generation so a stale async result is discarded if the
+      // user navigates or clears the preview before the engine responds.
       const dropPly = plyRef.current
       const dropGen = ++retryGenRef.current
 
-      // Async evaluation path.
       void (async () => {
         try {
-          const stm = chess.turn() as 'w' | 'b'
-          const result = await retryEngine.evaluate(resultFen)
-          // Guard: discard if the user navigated or cleared the coach while waiting.
+          const result = await retryEngine.evaluate(free.fen, { signal: controller.signal })
           if (plyRef.current !== dropPly || retryGenRef.current !== dropGen) return
-          const evalAfter = toWhitePov(result.score, stm)
-          const wpBefore = moverWinPercent(posB.eval, gMove.color)
-          const wpAfterRetry = moverWinPercent(evalAfter, gMove.color)
-          const loss = Math.max(0, wpBefore - wpAfterRetry)
-          setRetryMessage(acceptsRetry(loss) ? null : 'Not quite, try again.')
+          const evalAfter = toWhitePov(result.score, free.stm)
+          setFreeEval(evalAfter)
+          setFreeEvalPending(false)
+          if (scoredRetry) scoreRetry(evalAfter)
         } catch {
-          // Engine error – silently discard; retryActive is already false.
+          // Aborted or engine error: clear the pending state only if still current.
+          if (plyRef.current === dropPly && retryGenRef.current === dropGen) {
+            setFreeEvalPending(false)
+          }
+        } finally {
+          if (freeEvalAbortRef.current === controller) freeEvalAbortRef.current = null
         }
       })()
 
       return true
     },
-    [retryActive, ply, game.moves, analysis.positions, retryEngine],
+    [retryActive, ply, game.moves, analysis.positions, retryEngine, abortFreeEval],
   )
 
   const { headers } = game
   const status = current
     ? `${current.moveNumber}${current.color === 'w' ? '.' : '...'} ${current.san}`
     : 'Start position'
+
+  // Eval shown beside the board. While exploring a free move, show its fresh
+  // eval (or the EvalBar's pending state until it resolves); otherwise show the
+  // recorded eval for the current ply.
+  const recordedEval = analysis.positions[ply]?.eval
+  const evalForBar = previewFen
+    ? freeEvalPending
+      ? undefined
+      : freeEval ?? recordedEval
+    : recordedEval
 
   return (
     <section className="viewer" aria-label="Game viewer">
@@ -297,7 +387,7 @@ export default function GameViewer({ game }: GameViewerProps) {
         </div>
         <div className="board-row">
           {analysis.state.status !== 'error' && (
-            <EvalBar evaluation={analysis.positions[ply]?.eval} orientation={orientation} />
+            <EvalBar evaluation={evalForBar} orientation={orientation} />
           )}
           <div className="board-wrap">
             <Chessboard
@@ -305,8 +395,8 @@ export default function GameViewer({ game }: GameViewerProps) {
                 id: 'viewer-board',
                 position: boardPosition,
                 boardOrientation: orientation,
-                allowDragging: retryActive,
-                onPieceDrop: retryActive ? handlePieceDrop : undefined,
+                allowDragging: true,
+                onPieceDrop: handlePieceDrop,
                 squareStyles: boardSquareStyles,
                 squareRenderer,
                 arrows: mergeArrows(bestArrows, drawing.arrows),
@@ -317,7 +407,7 @@ export default function GameViewer({ game }: GameViewerProps) {
           </div>
         </div>
         <div className="viewer-status" aria-live="polite">
-          {status}
+          {freeMoveSan ? `Free move: ${freeMoveSan}` : status}
         </div>
         <NavControls ply={ply} total={nav.total} onNavigate={navigate} />
         <div className="board-flip-row">
