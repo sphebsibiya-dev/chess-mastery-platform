@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { START_FEN } from '../chess/constants'
+import { terminalEval } from '../engine/evaluate'
 import { applyFreeMove } from './freeMove'
 
 // This chess.js version only records the en-passant square when a capture is
@@ -11,7 +12,11 @@ const PROMO_FEN = '8/4P3/8/8/8/1k6/8/4K3 w - - 0 1'
 describe('applyFreeMove', () => {
   it('applies a legal pawn move for White from the start position', () => {
     const result = applyFreeMove(START_FEN, 'e2', 'e4')
-    expect(result).toEqual({ fen: FEN_AFTER_E4, san: 'e4', stm: 'b' })
+    expect(result).toEqual({ fen: FEN_AFTER_E4, san: 'e4', lan: 'e2e4', stm: 'b' })
+  })
+
+  it('reports UCI/lan including the promotion piece', () => {
+    expect(applyFreeMove(PROMO_FEN, 'e7', 'e8', 'n')?.lan).toBe('e7e8n')
   })
 
   it('returns null for an illegal move (e2-e5)', () => {
@@ -39,6 +44,15 @@ describe('applyFreeMove', () => {
   it('returns null when moving an opponent piece (not side to move)', () => {
     // White to move in START_FEN; dragging a black pawn is illegal.
     expect(applyFreeMove(START_FEN, 'e7', 'e5')).toBeNull()
+  })
+
+  it('produces a checkmating move that terminalEval can score (no engine needed)', () => {
+    // Fool's mate: position after 1.f3 e5 2.g4, Black to move plays Qh4#.
+    const beforeMate = 'rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq g3 0 2'
+    const mate = applyFreeMove(beforeMate, 'd8', 'h4')
+    expect(mate?.san).toBe('Qh4#')
+    // The resulting position is terminal, so the UI scores it without the engine.
+    expect(terminalEval(mate!.fen)).toEqual({ kind: 'mate', in: 0, winner: 'b' })
   })
 
   it('chains free moves by feeding the returned FEN back in', () => {

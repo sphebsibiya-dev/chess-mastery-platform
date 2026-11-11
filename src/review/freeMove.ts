@@ -6,6 +6,8 @@ export interface FreeMove {
   fen: string
   /** SAN of the move, e.g. 'e4', 'Nxe5', 'e8=Q'. */
   san: string
+  /** UCI/long algebraic of the move, e.g. 'e2e4', 'e7e8q'. Matches engine moves. */
+  lan: string
   /** Side to move AFTER the move (for `toWhitePov`). */
   stm: 'w' | 'b'
 }
@@ -28,7 +30,7 @@ export function applyFreeMove(
   const chess = new Chess(fen)
   try {
     const move = chess.move({ from, to, promotion })
-    return { fen: chess.fen(), san: move.san, stm: chess.turn() }
+    return { fen: chess.fen(), san: move.san, lan: move.lan, stm: chess.turn() }
   } catch {
     // chess.js throws on an illegal / malformed move.
     return null

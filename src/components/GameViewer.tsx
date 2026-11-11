@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
-import { toWhitePov } from '../engine/evaluate'
+import { terminalEval, toWhitePov } from '../engine/evaluate'
 import type { Eval } from '../engine/types'
 import type { ImportedGame } from '../import/types'
 import { acceptsRetry } from '../review/explain'
@@ -110,18 +110,29 @@ export default function GameViewer({ game }: GameViewerProps) {
    * the board without listing `boardPosition` (declared later) as a dependency.
    */
   const boardPositionRef = useRef(game.startFen)
+  /**
+   * Aborts the in-flight free-move engine search when it is superseded (a newer
+   * drag) or abandoned (ply change / preview clear), so the serialised engine
+   * queue does not run stale searches to full depth.
+   */
+  const freeEvalAbortRef = useRef<AbortController | null>(null)
+  const abortFreeEval = useCallback(() => {
+    freeEvalAbortRef.current?.abort()
+    freeEvalAbortRef.current = null
+  }, [])
 
   // Clear guided-review state whenever the ply changes; also bump the
   // generation so any in-flight eval resolves as a no-op.
   useEffect(() => {
     retryGenRef.current++
+    abortFreeEval()
     setPreviewFen(null)
     setRetryActive(false)
     setRetryMessage(null)
     setFreeMoveSan(null)
     setFreeEval(null)
     setFreeEvalPending(false)
-  }, [nav.ply])
+  }, [nav.ply, abortFreeEval])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -207,6 +218,8 @@ export default function GameViewer({ game }: GameViewerProps) {
 
   const handlePreviewFen = useCallback(
     (fen: string | null, arrows?: ReviewCoachArrow[]) => {
+      // A coach preview or explicit clear supersedes any in-flight free eval.
+      abortFreeEval()
       if (fen === null) {
         // Explicit clear (e.g. tab switch): invalidate any in-flight eval.
         retryGenRef.current++
@@ -226,7 +239,7 @@ export default function GameViewer({ game }: GameViewerProps) {
         setFreeEvalPending(false)
       }
     },
-    [],
+    [abortFreeEval],
   )
 
   const handleRetry = useCallback(() => {
@@ -267,16 +280,56 @@ export default function GameViewer({ game }: GameViewerProps) {
       const posB = scoredRetry ? analysis.positions[ply - 1] : undefined
       const gMove = scoredRetry ? game.moves[ply - 1] : undefined
 
-      // Show the resulting position and mark the eval as pending.
+      // Scoring helper for a scored Retry: compare the mover's win% before and
+      // after the attempt and accept small losses.
+      const scoreRetry = (evalAfter: Eval) => {
+        if (!posB || !gMove) return
+        const wpBefore = moverWinPercent(posB.eval, gMove.color)
+        const wpAfterRetry = moverWinPercent(evalAfter, gMove.color)
+        const loss = Math.max(0, wpBefore - wpAfterRetry)
+        setRetryMessage(acceptsRetry(loss) ? null : 'Not quite, try again.')
+      }
+
+      // A newer drop supersedes any in-flight free-move search.
+      abortFreeEval()
+
+      // Show the resulting position. Suppress the "Free move" label during a
+      // scored Retry so the Coach accept/reject messaging reads cleanly.
       pendingArrowsRef.current = null
       setPreviewFen(free.fen)
-      setFreeMoveSan(free.san)
-      setFreeEval(null)
-      setFreeEvalPending(true)
+      setFreeMoveSan(scoredRetry ? null : free.san)
       // Disable the scored Retry so a second drop cannot start another scored
       // eval; dragging itself stays available for further free exploration.
       setRetryActive(false)
       setRetryMessage(null)
+
+      // Scored-retry fast path: a move that is the engine best or in the stored
+      // top lines is accepted instantly from the stored eval (no engine call).
+      if (scoredRetry && posB) {
+        const lineEval = posB.lines.find((l) => l.move === free.lan)?.eval
+        if (lineEval) {
+          setFreeEval(lineEval)
+          setFreeEvalPending(false)
+          scoreRetry(lineEval)
+          return true
+        }
+      }
+
+      // Terminal position (checkmate / stalemate / dead draw): score without the
+      // engine, which has no move to search and would otherwise error.
+      const terminal = terminalEval(free.fen)
+      if (terminal) {
+        setFreeEval(terminal)
+        setFreeEvalPending(false)
+        if (scoredRetry) scoreRetry(terminal)
+        return true
+      }
+
+      // Non-terminal move: fresh on-demand eval, abortable and generation-guarded.
+      setFreeEval(null)
+      setFreeEvalPending(true)
+      const controller = new AbortController()
+      freeEvalAbortRef.current = controller
 
       // Capture ply + generation so a stale async result is discarded if the
       // user navigates or clears the preview before the engine responds.
@@ -285,28 +338,25 @@ export default function GameViewer({ game }: GameViewerProps) {
 
       void (async () => {
         try {
-          const result = await retryEngine.evaluate(free.fen)
+          const result = await retryEngine.evaluate(free.fen, { signal: controller.signal })
           if (plyRef.current !== dropPly || retryGenRef.current !== dropGen) return
           const evalAfter = toWhitePov(result.score, free.stm)
           setFreeEval(evalAfter)
           setFreeEvalPending(false)
-          if (scoredRetry && posB && gMove) {
-            const wpBefore = moverWinPercent(posB.eval, gMove.color)
-            const wpAfterRetry = moverWinPercent(evalAfter, gMove.color)
-            const loss = Math.max(0, wpBefore - wpAfterRetry)
-            setRetryMessage(acceptsRetry(loss) ? null : 'Not quite, try again.')
-          }
+          if (scoredRetry) scoreRetry(evalAfter)
         } catch {
-          // Engine error: clear the pending state if still current.
+          // Aborted or engine error: clear the pending state only if still current.
           if (plyRef.current === dropPly && retryGenRef.current === dropGen) {
             setFreeEvalPending(false)
           }
+        } finally {
+          if (freeEvalAbortRef.current === controller) freeEvalAbortRef.current = null
         }
       })()
 
       return true
     },
-    [retryActive, ply, game.moves, analysis.positions, retryEngine],
+    [retryActive, ply, game.moves, analysis.positions, retryEngine, abortFreeEval],
   )
 
   const { headers } = game

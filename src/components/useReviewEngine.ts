@@ -8,6 +8,8 @@ export const RETRY_DEPTH = 12
 export interface ReviewEngineOptions {
   depth?: number
   multiPv?: number
+  /** Abort the search when superseded (navigation / a newer drag). */
+  signal?: AbortSignal
 }
 
 export interface ReviewEngineHandle {
@@ -48,6 +50,7 @@ export function useReviewEngine(): ReviewEngineHandle {
       return engine.analyse(fen, {
         depth: opts.depth ?? RETRY_DEPTH,
         multiPv: opts.multiPv ?? 1,
+        signal: opts.signal,
       })
     },
     [],
