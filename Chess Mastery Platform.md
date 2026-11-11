@@ -6,6 +6,8 @@ Status: **new idea, added Fri 30 Oct 2026 (voice chat).** Review feature chosen 
 
 A chess platform that imports your games, reviews them with Stockfish, coaches you in plain language, lets you play rated games against the computer, and teaches you what your own mistakes show you need. The edge over chess.com and Lichess is the combination: review, a coach you can switch off, and a learning path built from your own games. Everything below this master plan is the detailed reference, kept in full.
 
+> **Active sequencing (added Fri 6 Nov 2026):** `POC Plan.md` narrows this master plan into a phased proof-of-concept — **POC v1** (game review only, now including an interactive auto-branching review board, game sounds, and a template-based Explain button), **POC v2** (Coach as bring-your-own-LLM), **POC v3** (self-trained/personalised model, prospective). This master plan stays as the full reference; where the two differ on ordering, `POC Plan.md` is the working sequence. The POC additions are tracked as issues #38–#42.
+
 ## Master feature list
 
 | Feature | What it does | Version | Detail section |
@@ -33,7 +35,7 @@ These were missing from the earlier sections and affect every feature.
 
 - **Over-the-board game entry:** record a real-life game by tapping moves on a board, or later by photographing the scoresheet, then review it like any other game.
 - **Daily puzzle:** one puzzle a day from the Lichess database, with a streak, to build a habit.
-- **Board themes and sound:** piece sets, board colours and move sounds, which make a big difference to how the app feels. Specific idea (added Wed 4 Nov 2026): themed, characterful sound effects per move type rather than generic clicks — e.g. a horse neigh for a knight move, a sniper rifle chambering sound for a long cross-board capture, a rock sliding across stone for castling. Treat as a sound-pack concept (move type → sound), separate from the default/neutral sound set; could ship as a selectable fun theme alongside a plain one. This is cosmetic polish, not in the core build order — revisit once the review loop (steps 1-2) and board UI exist.
+- **Board themes and sound:** piece sets, board colours and move sounds, which make a big difference to how the app feels. Specific idea (added Wed 4 Nov 2026): themed, characterful sound effects per move type rather than generic clicks — e.g. a horse neigh for a knight move, a sniper rifle chambering sound for a long cross-board capture, a rock sliding across stone for castling. Treat as a sound-pack concept (move type → sound), separate from the default/neutral sound set; could ship as a selectable fun theme alongside a plain one. This is cosmetic polish, not in the core build order — revisit once the review loop (steps 1-2) and board UI exist. **Update (Fri 6 Nov 2026):** that condition is now met, so a plain/neutral sound set is pulled into **POC v1** (issue #40); the themed pack remains optional polish, a possible immediate follow-up.
 - **Board drawing and square highlighting:** chess.com-style annotation on the board (added Thu 5 Nov 2026) — right-click-drag draws an arrow between squares, right-click a single square highlights it, clicking an existing arrow/highlight again removes it, a normal left click clears everything; modifier keys (shift/ctrl/alt) switch colour; mobile needs its own input (long-press or a draw-mode toggle, since there's no right-click). `react-chessboard` already supports arrows and highlights natively, so it's mostly wiring up input events. **Decision: not saved for now** — drawings stay temporary, live only while viewing a position, and clear on navigating away. No storage or backend needed. Saving annotations with a game review (so they're shareable, or a coach can annotate in a different colour) was considered and set aside as a possible future extension, not planned now. This is board UI work with no dependency on Stockfish, accounts or storage — it sits on the interactive board itself (step 1), with no build-order step of its own yet. Also useful later for coach mode (step 8), which could draw its own arrows to highlight a threat or the engine's suggested move, reusing the same drawing layer.
 - **Game review sharing:** a link to a review so friends or a coach can step through it.
 - **Post-game quick summary:** three sentences after every game, written by Claude: what went well, the main mistake, and one thing to practise.
@@ -119,7 +121,7 @@ The original thought was to reverse engineer chess.com's game review (using the 
 3. Run Stockfish on every position (in the browser via WebAssembly, or on a small backend).
 4. Classify each move by evaluation swing (centipawn loss or win-probability loss).
 5. Show an accuracy score for each side, an evaluation graph, and a list of key moments (biggest blunders, missed tactics, turning points).
-6. Interactive board to step through the game with the engine's suggested move.
+6. Interactive board to step through the game with the engine's suggested move. **POC v1 (Fri 6 Nov 2026)** upgrades this from read-only step-through to fully interactive: move either side on any position, auto-branch into a variation tree on any deviation, with live Stockfish eval on every move (issues #38 board moves + live eval, #39 variation tree).
 
 ### Version 1.5: chess.com-style review (added Thu 5 Nov 2026)
 
@@ -128,9 +130,11 @@ Decided after v1 merged: make the review feel like chess.com's Game Review befor
 - **More move classes:** Brilliant (a good move that sacrifices material), Great (the only good move, every alternative is clearly worse), Miss (failed to punish the opponent's mistake), Book (opening theory, from the Lichess open opening list). Needs the engine's top two lines per position.
 - **Board icons and eval bar:** the move's class icon on its destination square, and a vertical evaluation bar beside the board.
 - **Summary report:** both players' accuracy, the opening name, a count of each move class, an estimated game rating per side, and a rating for each phase (opening, middlegame, endgame).
-- **Guided review:** step through move by move with a coach card that says why (hangs a piece, misses mate, only move), and buttons to show the best move, retry the position yourself, and show the engine's follow-up line. Explanations are template-based; Claude explanations stay in coach mode (v3).
+- **Guided review:** step through move by move with a coach card that says why (hangs a piece, misses mate, only move), and buttons to show the best move, retry the position yourself, and show the engine's follow-up line. Explanations are template-based; Claude explanations stay in coach mode. **POC v1 (Fri 6 Nov 2026)** surfaces the same template-based explanation as a per-move **Explain button** in the main move-by-move review, outside the guided-review card (issue #41) — still no LLM. The LLM version is Coach, now **POC v2 (bring-your-own-key)** rather than v3 Mogfish-run — see below.
 
 ## Coach mode (version 2)
+
+> **POC v2 reframing (Fri 6 Nov 2026):** Coach is **bring-your-own-LLM** — the player supplies their own login or API key (Claude, ChatGPT, or others) and Coach uses that as its brain, running a defined coach instruction set/skill. This means Mogfish carries no LLM cost, which supersedes the earlier "Claude explanations on a daily free-tier limit" cost model for coaching. Architecture and open questions are tracked in issue #42 and `POC Plan.md` §POC v2; the existing issue #8 stays as the earlier Mogfish-run framing. Waits for POC v1 to merge.
 
 - Toggle for tips: **on or off** at any time during a game.
 - Light nudges rather than answers: for example "check what your opponent threatens" before revealing the best move. Tiers of hints (nudge, then idea, then the move).

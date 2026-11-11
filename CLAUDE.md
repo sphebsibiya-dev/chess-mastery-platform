@@ -1,6 +1,6 @@
 # Mogfish
 
-**Mogfish** (working name; repo and board still say "Chess Mastery Platform") is a chess review, coach and learning platform built on the player's own games. Product plan, feature list and build order: `Chess Mastery Platform.md`. Work is tracked as GitHub issues on the project board.
+**Mogfish** (working name; repo and board still say "Chess Mastery Platform") is a chess review, coach and learning platform built on the player's own games. Product plan, feature list and build order: `Chess Mastery Platform.md`; the active phased sequencing is `POC Plan.md` (POC v1 game review → v2 bring-your-own-LLM Coach → v3 self-trained model), which is the working order where it differs from the master plan. Work is tracked as GitHub issues on the project board.
 
 ## Stack
 - Vite 8 + React 19 + TypeScript 7 (strict). Mobile-first: everything must work on a ~375px-wide screen.
@@ -27,6 +27,7 @@ Agents: `issue-planner` → `builder` → `reviewer` + `tester`. Agents **open P
 - One issue = one branch `feat/<issue>-<short-slug>` = one PR whose body contains `Closes #<issue>`.
 - Branch from up-to-date `origin/main`. Never stack an issue on another unmerged branch; if a dependency isn't merged, stop and report it.
 - Dependency order: #1 → (#2, #3, #16) → #4. #16 (board drawing) depends only on #1; keep it in its own component/hook so it does not clash with #2 in `GameViewer`. v2 issues (#5–#7) wait for v1 to be merged; v3/v4 likewise.
+- POC v1 additions (all build on merged `main`): **#38** interactive board (move any position + live eval) → **#39** auto-branching variation tree (depends on #38, start only once #38 is merged); **#40** game sounds and **#41** template-based Explain button are independent of #38/#39 and of each other. **#42** POC v2 bring-your-own-LLM Coach waits for POC v1 to merge (separate from #8).
 - Commit messages end with: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`
 - PR descriptions end with: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 
