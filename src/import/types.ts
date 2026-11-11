@@ -35,6 +35,8 @@ export interface ImportedMove {
   promotion?: 'q' | 'r' | 'b' | 'n'
   fenBefore: string
   fenAfter: string
+  /** chess.js move flags: n, b, c, e, k, or q. */
+  flags?: string
   /** Comment text with `[%...]` commands removed. */
   comment?: string
   /** Remaining clock after the move, from `[%clk h:mm:ss(.f)]`. */
