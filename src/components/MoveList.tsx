@@ -1,6 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { PositionAnalysis } from '../engine/types'
 import type { ImportedMove } from '../import/types'
-import type { MoveClass } from '../review/types'
+import { explainMove } from '../review/explain'
+import type { Opening } from '../review/openings/book'
+import type { MoveClass, MoveReview } from '../review/types'
 import type { BranchMap, VariationNode } from '../review/variationTree'
 import { formatEval, type TimeBadge } from './analysisView'
 import ClassificationBadge from './ClassificationBadge'
@@ -13,6 +16,9 @@ interface MoveListProps {
   onSelect: (ply: number) => void
   /** Classification per move, indexed by `ply - 1`. */
   classes?: readonly (MoveClass | undefined)[]
+  reviews?: readonly (MoveReview | undefined)[]
+  positions?: readonly PositionAnalysis[]
+  opening?: Opening
   /** Time-trouble badge per move, indexed by `ply - 1`. Omit for games without clocks. */
   timeFlags?: readonly (TimeBadge | undefined)[]
   /** Variation branches keyed by main-line departure ply. */
@@ -56,12 +62,16 @@ export default function MoveList({
   ply,
   onSelect,
   classes,
+  reviews,
+  positions,
+  opening,
   timeFlags,
   branches,
   cursor,
   onSelectNode,
 }: MoveListProps) {
   const listRef = useRef<HTMLOListElement>(null)
+  const [expandedPly, setExpandedPly] = useState<number | null>(null)
 
   useEffect(() => {
     const list = listRef.current
@@ -85,23 +95,46 @@ export default function MoveList({
     if (!move) return <span className="move move-empty">…</span>
     const cls = classes?.[move.ply - 1]
     const time = timeFlags?.[move.ply - 1]
+    const review = reviews?.[move.ply - 1]
+    const posBefore = positions?.[move.ply - 1]
+    const posAfter = positions?.[move.ply]
+    const explainId = `move-explanation-${move.ply}`
     const onMain = (!cursor || cursor.kind === 'main') && move.ply === ply
     return (
-      <button
-        type="button"
-        className="move"
-        aria-current={onMain ? 'true' : undefined}
-        onClick={() => onSelect(move.ply)}
-      >
-        <span className="move-san">{move.san}</span>
-        {cls && <ClassificationBadge cls={cls} />}
-        {time && (
-          <span className={`time-badge time-${time.flag}`} role="img" aria-label={time.label} title={time.label}>
-            {/* Stopwatch, forced to text presentation so it takes the badge colour. */}
-            {'⏱︎'}
-          </span>
+      <span className="move-cell">
+        <button
+          type="button"
+          className="move"
+          aria-current={onMain ? 'true' : undefined}
+          onClick={() => onSelect(move.ply)}
+        >
+          <span className="move-san">{move.san}</span>
+          {cls && <ClassificationBadge cls={cls} />}
+          {time && (
+            <span className={`time-badge time-${time.flag}`} role="img" aria-label={time.label} title={time.label}>
+              {'⏱︎'}
+            </span>
+          )}
+        </button>
+        {review && posBefore && posAfter && (
+          <>
+            <button
+              type="button"
+              className="move-explain-toggle"
+              aria-expanded={expandedPly === move.ply}
+              aria-controls={explainId}
+              onClick={() => setExpandedPly((current) => current === move.ply ? null : move.ply)}
+            >
+              Explain
+            </button>
+            {expandedPly === move.ply && (
+              <span className="move-explanation" id={explainId}>
+                {explainMove(review, { move, posBefore, posAfter, opening })}
+              </span>
+            )}
+          </>
         )}
-      </button>
+      </span>
     )
   }
 

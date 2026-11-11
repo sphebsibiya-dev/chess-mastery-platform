@@ -579,6 +579,9 @@ export default function GameViewer({ game }: GameViewerProps) {
             ply={ply}
             onSelect={selectPly}
             classes={classes}
+            reviews={reviews}
+            positions={analysis.positions}
+            opening={analysis.state.status === 'done' ? analysis.state.opening : undefined}
             timeFlags={timeFlags}
             branches={branches}
             cursor={cursor}
