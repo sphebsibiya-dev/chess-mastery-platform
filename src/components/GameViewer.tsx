@@ -1,3 +1,4 @@
+import { Chess } from 'chess.js'
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react'
 import { Chessboard } from 'react-chessboard'
 import { terminalEval, toWhitePov } from '../engine/evaluate'
@@ -27,6 +28,7 @@ import { useBoardDrawing } from './useBoardDrawing'
 import { useClassIconRenderer } from './useClassIconRenderer'
 import { useGameAnalysis } from './useGameAnalysis'
 import { useReviewEngine } from './useReviewEngine'
+import { playMoveSound, setSoundMuted } from '../sound/moveSound'
 
 interface GameViewerProps {
   game: ImportedGame
@@ -64,6 +66,52 @@ export default function GameViewer({ game }: GameViewerProps) {
   const navigate = useCallback((action: NavAction) => dispatch({ type: 'nav', action }), [])
   const analysis = useGameAnalysis(game)
   const retryEngine = useReviewEngine()
+  const [muted, setMuted] = useState(() => {
+    try { return window.localStorage.getItem('mogfish-sounds-muted') === 'true' } catch { return false }
+  })
+
+  useEffect(() => { setSoundMuted(muted) }, [muted])
+
+  // Single move-sound driver. After #39 the main line advances inside the reducer
+  // (there is no longer one drop-site meaning "a move was played"), so the sound
+  // is derived from where the viewer now is: `main:<ply>` on the recorded line,
+  // `branch:<path>` on a variation node, `start` at the opening position. The
+  // token changes exactly once per move or navigation step — recorded-move
+  // advance (nav.ply), branch creation/entry (cursor), and plain stepping — so
+  // each plays exactly one sound and plain navigation never double-plays. The
+  // move is replayed from its FEN to get chess.js flags + post-move check state.
+  const soundToken =
+    cursor.kind === 'branch'
+      ? `branch:${cursor.departPly}:${cursor.path.join('/')}`
+      : nav.ply > 0
+        ? `main:${nav.ply}`
+        : 'start'
+  useEffect(() => {
+    if (soundToken === 'start') return
+    const node = cursor.kind === 'branch' ? nodeAt(branches, cursor.departPly, cursor.path) : undefined
+    const src = node ?? (nav.ply > 0 ? game.moves[nav.ply - 1] : undefined)
+    if (!src) return
+    const promotion =
+      'promotion' in src ? src.promotion : src.lan.length > 4 ? (src.lan[4] as 'q' | 'r' | 'b' | 'n') : undefined
+    const chess = new Chess(src.fenBefore)
+    try {
+      const move = chess.move({ from: src.from, to: src.to, promotion })
+      playMoveSound(move, chess.inCheck())
+    } catch { /* malformed imported games are already handled by the importer */ }
+    // Keyed on `soundToken` only: it already encodes every input that should
+    // retrigger a sound, so unrelated re-renders (e.g. a branch eval resolving)
+    // do not replay it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [soundToken])
+
+  const toggleMuted = useCallback(() => {
+    setMuted((value) => {
+      const next = !value
+      setSoundMuted(next)
+      try { window.localStorage.setItem('mogfish-sounds-muted', String(next)) } catch { /* storage is optional */ }
+      return next
+    })
+  }, [])
 
   // Board orientation: auto-sets to the user's side for online games, white for pasted PGN.
   const [orientation, setOrientation] = useState<'white' | 'black'>(initialOrientation(game))
@@ -297,6 +345,13 @@ export default function GameViewer({ game }: GameViewerProps) {
 
       // --- Path A: a coach/retry preview is on the board (transient, as in #38) ---
       if (previewFen !== null) {
+        // A transient preview move changes neither nav.ply nor the cursor, so the
+        // move-sound effect below never fires for it: play its sound directly here
+        // (recreate with chess.js for flags + check). Path B moves are sounded by
+        // the effect instead, so there is no double-play.
+        const moveChess = new Chess(sourceFen)
+        playMoveSound(moveChess.move({ from: sourceSquare, to: targetSquare }), moveChess.inCheck())
+
         // Scored Coach Retry only applies to the move actually under review, i.e.
         // the free move was played from the ply's "before" position.
         const scoredRetry = retryActive && ply > 0 && sourceFen === game.moves[ply - 1]?.fenBefore
@@ -473,6 +528,9 @@ export default function GameViewer({ game }: GameViewerProps) {
         <div className="board-flip-row">
           <button type="button" className="flip-board-btn" onClick={toggleOrientation} aria-label="Flip board">
             ⇅ Flip board
+          </button>
+          <button type="button" className="sound-toggle" onClick={toggleMuted} aria-pressed={muted}>
+            {muted ? '🔇 Sound off' : '🔊 Sound on'}
           </button>
         </div>
         <DrawToolbar
