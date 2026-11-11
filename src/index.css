@@ -188,6 +188,32 @@ button.primary:hover { background: #46895a; }
 .move-empty { color: #5b6560; cursor: default; display: flex; align-items: center; }
 .game-meta { font-size: 0.875rem; margin: 8px 0 0; }
 
+/* Auto-branching variations: indented, nested lines beneath the main move. */
+.move-variations {
+  list-style: none;
+  margin: 2px 0 2px 3em;
+  padding-left: 8px;
+  border-left: 2px solid #34463a;
+}
+.variation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  color: #9aa69f;
+  font-size: 0.9375rem;
+  padding: 1px 0;
+}
+.variation-nested { color: #7f8c84; }
+.var-move {
+  min-height: 28px;
+  padding: 2px 6px;
+  gap: 3px;
+}
+.var-move-group { display: contents; }
+.var-number { color: #7c8781; padding: 0; text-align: left; }
+.var-eval { font-size: 0.75rem; margin-left: 2px; }
+
 /* Move classification badges. Kept on one line with the SAN so rows never wrap. */
 .move { gap: 4px; white-space: nowrap; min-width: 0; }
 .move-san { overflow: hidden; text-overflow: ellipsis; }

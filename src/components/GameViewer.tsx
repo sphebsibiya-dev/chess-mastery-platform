@@ -5,6 +5,7 @@ import type { Eval } from '../engine/types'
 import type { ImportedGame } from '../import/types'
 import { acceptsRetry } from '../review/explain'
 import { applyFreeMove } from '../review/freeMove'
+import { childId, nodeAt, rootParentId } from '../review/variationTree'
 import { findKeyMoments } from '../review/keyMoments'
 import { moveTimes } from '../review/timeTrouble'
 import { moverWinPercent, winPercent } from '../review/winProbability'
@@ -19,7 +20,8 @@ import EvalGraph from './EvalGraph'
 import type { TimeTroubleEntry } from './KeyMoments'
 import MoveList from './MoveList'
 import NavControls from './NavControls'
-import { navActionForKey, navReducer, type NavAction } from './navigation'
+import { type NavAction } from './navigation'
+import { initialTreeState, navActionForKey, treeNavReducer } from './treeNav'
 import ReviewSidePanel from './ReviewSidePanel'
 import { useBoardDrawing } from './useBoardDrawing'
 import { useClassIconRenderer } from './useClassIconRenderer'
@@ -54,8 +56,12 @@ function player(name: string | undefined, elo: number | undefined): string {
 
 export default function GameViewer({ game }: GameViewerProps) {
   // The parent keys this component by game id, so state starts fresh per game.
-  const [nav, dispatch] = useReducer(navReducer, { ply: 0, total: game.moves.length })
-  const navigate = useCallback((action: NavAction) => dispatch(action), [])
+  // `tree` holds the index-based main line (`nav`), a persistent variation-tree
+  // overlay (`branches`), and a `cursor` that is either on the main line or a
+  // branch node. On the main line every navigation is identical to before.
+  const [tree, dispatch] = useReducer(treeNavReducer, game.moves.length, initialTreeState)
+  const { nav, cursor, branches } = tree
+  const navigate = useCallback((action: NavAction) => dispatch({ type: 'nav', action }), [])
   const analysis = useGameAnalysis(game)
   const retryEngine = useReviewEngine()
 
@@ -142,7 +148,7 @@ export default function GameViewer({ game }: GameViewerProps) {
       const action = navActionForKey(event.key, onSlider)
       if (!action) return
       event.preventDefault()
-      dispatch(action)
+      dispatch({ type: 'nav', action })
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -172,18 +178,31 @@ export default function GameViewer({ game }: GameViewerProps) {
     }
     return entries
   }, [times])
-  const selectPly = useCallback((p: number) => dispatch({ type: 'goto', ply: p }), [])
+  const selectPly = useCallback((p: number) => dispatch({ type: 'selectMain', ply: p }), [])
+  const selectNode = useCallback(
+    (departPly: number, path: string[]) => dispatch({ type: 'selectNode', departPly, path }),
+    [],
+  )
   const current = ply > 0 ? game.moves[ply - 1] : undefined
   const position = current ? current.fenAfter : game.startFen
 
-  // Board position: show the preview FEN when active, otherwise the game position.
-  const boardPosition = previewFen ?? position
+  // Active variation node (when the cursor is on a branch), and the position it
+  // puts on the board. A coach/retry preview (`previewFen`) still wins over both.
+  const branchNode = cursor.kind === 'branch' ? nodeAt(branches, cursor.departPly, cursor.path) : undefined
+  const treePosition = branchNode ? branchNode.fenAfter : position
+
+  // Board position: coach preview wins, then the active branch node, then the
+  // recorded main-line position.
+  const boardPosition = previewFen ?? treePosition
   // Keep the ref in sync so the free-move drop handler always reads the
   // position currently on the board (enabling chained free moves).
   boardPositionRef.current = boardPosition
 
-  const squareStyles: Record<string, CSSProperties> = current
-    ? { [current.from]: HIGHLIGHT, [current.to]: HIGHLIGHT }
+  // Highlight the last move's squares: the branch node's when on a branch,
+  // otherwise the recorded move's.
+  const highlighted = branchNode ?? current
+  const squareStyles: Record<string, CSSProperties> = highlighted
+    ? { [highlighted.from]: HIGHLIGHT, [highlighted.to]: HIGHLIGHT }
     : {}
 
   // Pass boardPosition so drawings belong to the preview position when active.
@@ -206,12 +225,13 @@ export default function GameViewer({ game }: GameViewerProps) {
   // Suppress the automatic engine arrow when a preview is active so it does not
   // show moves from a position that is no longer on the board.
   const bestArrows = useMemo(
-    () => (previewFen === null ? engineArrows(analysis.positions, ply) : []),
-    [previewFen, analysis.positions, ply],
+    () => (previewFen === null && !branchNode ? engineArrows(analysis.positions, ply) : []),
+    [previewFen, branchNode, analysis.positions, ply],
   )
 
   const boardSquareStyles = mergeSquareStyles(squareStyles, drawing.squareStyles)
-  const icon = classIconFor(current, classes?.[ply - 1])
+  // Branch nodes are unclassified, so no class icon while a branch is active.
+  const icon = branchNode ? undefined : classIconFor(current, classes?.[ply - 1])
   const squareRenderer = useClassIconRenderer(icon, boardSquareStyles)
 
   // --- Coach interaction callbacks ---
@@ -253,126 +273,166 @@ export default function GameViewer({ game }: GameViewerProps) {
   }, [ply, game.moves])
 
   /**
-   * Free-move drop handler, always active on every position.
+   * Drop handler, always active on every position. Moving a piece IS the action.
    *
-   * Any legal move for the side to move is accepted (unscored): the resulting
-   * position is held transiently in `previewFen`, its SAN shown in the status
-   * line, and a fresh on-demand Stockfish eval of the new FEN drives the EvalBar.
+   * Two paths:
+   * - **Coach/retry preview on the board** (`previewFen` set): keep #38's
+   *   transient behavior — the move previews in `previewFen`, a scored Retry is
+   *   scored, and no persistent branch is created from a preview position.
+   * - **Clean position** (main line or an existing branch node): a move that
+   *   matches the recorded next move advances the main line; any other legal move
+   *   opens/enters a persistent variation branch that carries its own live eval.
+   *
    * Illegal moves return false so react-chessboard snaps the piece back. The
-   * game's recorded line is never mutated, so step-through stays intact.
-   *
-   * When a scored Coach "Retry" is active (`retryActive` at a real ply), the same
-   * eval additionally feeds the Coach accept/reject message — that feature is an
-   * additive layer on top of the always-available free move.
+   * recorded line (`game.moves`) is never mutated, so step-through stays intact.
    */
   const handlePieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { piece?: unknown; sourceSquare: string; targetSquare: string | null }): boolean => {
       if (targetSquare === null) return false
 
-      // Source = the position currently on the board, so free moves chain.
+      // Source = the position currently on the board, so moves chain.
       const sourceFen = boardPositionRef.current
       const free = applyFreeMove(sourceFen, sourceSquare, targetSquare)
       if (!free) return false // illegal move: snap back
 
-      // Scored Coach Retry only applies to the move actually under review, i.e.
-      // the free move was played from the ply's "before" position.
-      const scoredRetry = retryActive && ply > 0 && sourceFen === game.moves[ply - 1]?.fenBefore
-      const posB = scoredRetry ? analysis.positions[ply - 1] : undefined
-      const gMove = scoredRetry ? game.moves[ply - 1] : undefined
+      // --- Path A: a coach/retry preview is on the board (transient, as in #38) ---
+      if (previewFen !== null) {
+        // Scored Coach Retry only applies to the move actually under review, i.e.
+        // the free move was played from the ply's "before" position.
+        const scoredRetry = retryActive && ply > 0 && sourceFen === game.moves[ply - 1]?.fenBefore
+        const posB = scoredRetry ? analysis.positions[ply - 1] : undefined
+        const gMove = scoredRetry ? game.moves[ply - 1] : undefined
 
-      // Scoring helper for a scored Retry: compare the mover's win% before and
-      // after the attempt and accept small losses.
-      const scoreRetry = (evalAfter: Eval) => {
-        if (!posB || !gMove) return
-        const wpBefore = moverWinPercent(posB.eval, gMove.color)
-        const wpAfterRetry = moverWinPercent(evalAfter, gMove.color)
-        const loss = Math.max(0, wpBefore - wpAfterRetry)
-        setRetryMessage(acceptsRetry(loss) ? null : 'Not quite, try again.')
-      }
+        // Compare the mover's win% before/after the attempt and accept small losses.
+        const scoreRetry = (evalAfter: Eval) => {
+          if (!posB || !gMove) return
+          const wpBefore = moverWinPercent(posB.eval, gMove.color)
+          const wpAfterRetry = moverWinPercent(evalAfter, gMove.color)
+          const loss = Math.max(0, wpBefore - wpAfterRetry)
+          setRetryMessage(acceptsRetry(loss) ? null : 'Not quite, try again.')
+        }
 
-      // A newer drop supersedes any in-flight free-move search.
-      abortFreeEval()
+        abortFreeEval()
+        pendingArrowsRef.current = null
+        setPreviewFen(free.fen)
+        setFreeMoveSan(scoredRetry ? null : free.san)
+        setRetryActive(false)
+        setRetryMessage(null)
 
-      // Show the resulting position. Suppress the "Free move" label during a
-      // scored Retry so the Coach accept/reject messaging reads cleanly.
-      pendingArrowsRef.current = null
-      setPreviewFen(free.fen)
-      setFreeMoveSan(scoredRetry ? null : free.san)
-      // Disable the scored Retry so a second drop cannot start another scored
-      // eval; dragging itself stays available for further free exploration.
-      setRetryActive(false)
-      setRetryMessage(null)
+        // Scored-retry fast path: a move in the stored top lines is accepted instantly.
+        if (scoredRetry && posB) {
+          const lineEval = posB.lines.find((l) => l.move === free.lan)?.eval
+          if (lineEval) {
+            setFreeEval(lineEval)
+            setFreeEvalPending(false)
+            scoreRetry(lineEval)
+            return true
+          }
+        }
 
-      // Scored-retry fast path: a move that is the engine best or in the stored
-      // top lines is accepted instantly from the stored eval (no engine call).
-      if (scoredRetry && posB) {
-        const lineEval = posB.lines.find((l) => l.move === free.lan)?.eval
-        if (lineEval) {
-          setFreeEval(lineEval)
+        const terminalA = terminalEval(free.fen)
+        if (terminalA) {
+          setFreeEval(terminalA)
           setFreeEvalPending(false)
-          scoreRetry(lineEval)
+          if (scoredRetry) scoreRetry(terminalA)
           return true
         }
-      }
 
-      // Terminal position (checkmate / stalemate / dead draw): score without the
-      // engine, which has no move to search and would otherwise error.
-      const terminal = terminalEval(free.fen)
-      if (terminal) {
-        setFreeEval(terminal)
-        setFreeEvalPending(false)
-        if (scoredRetry) scoreRetry(terminal)
+        setFreeEval(null)
+        setFreeEvalPending(true)
+        const controllerA = new AbortController()
+        freeEvalAbortRef.current = controllerA
+        // Capture ply + generation so a stale async result is discarded.
+        const dropPly = plyRef.current
+        const dropGen = ++retryGenRef.current
+        void (async () => {
+          try {
+            const result = await retryEngine.evaluate(free.fen, { signal: controllerA.signal })
+            if (plyRef.current !== dropPly || retryGenRef.current !== dropGen) return
+            const evalAfter = toWhitePov(result.score, free.stm)
+            setFreeEval(evalAfter)
+            setFreeEvalPending(false)
+            if (scoredRetry) scoreRetry(evalAfter)
+          } catch {
+            if (plyRef.current === dropPly && retryGenRef.current === dropGen) setFreeEvalPending(false)
+          } finally {
+            if (freeEvalAbortRef.current === controllerA) freeEvalAbortRef.current = null
+          }
+        })()
         return true
       }
 
-      // Non-terminal move: fresh on-demand eval, abortable and generation-guarded.
-      setFreeEval(null)
-      setFreeEvalPending(true)
+      // --- Path B: clean position — create/enter a persistent branch ---
+      const onMain = cursor.kind === 'main'
+      const recordedNextLan = onMain ? game.moves[ply]?.lan : undefined
+      dispatch({ type: 'play', fenBefore: sourceFen, from: sourceSquare, to: targetSquare, recordedNextLan })
+
+      // Recorded-move match: the main line advanced; its recorded eval drives the bar.
+      if (onMain && recordedNextLan !== undefined && free.lan === recordedNextLan) return true
+
+      // A branch node was created/entered. Its path is deterministic from the id
+      // scheme, so compute it here to target the async eval (no post-dispatch read).
+      const departPly = cursor.kind === 'branch' ? cursor.departPly : ply
+      const parentPath = cursor.kind === 'branch' ? cursor.path : []
+      const parentId = parentPath.length ? parentPath[parentPath.length - 1] : rootParentId(departPly)
+      const path = [...parentPath, childId(parentId, free.lan)]
+
+      // Terminal branch position: score without the engine.
+      const terminal = terminalEval(free.fen)
+      if (terminal) {
+        dispatch({ type: 'setNodeEval', departPly, path, eval: terminal, evalPending: false })
+        return true
+      }
+
+      // Non-terminal: fresh on-demand eval, abortable. A stale result is a no-op —
+      // `setNodeEval` ignores a vanished node and the value is position-deterministic.
+      abortFreeEval()
+      dispatch({ type: 'setNodeEval', departPly, path, evalPending: true })
       const controller = new AbortController()
       freeEvalAbortRef.current = controller
-
-      // Capture ply + generation so a stale async result is discarded if the
-      // user navigates or clears the preview before the engine responds.
-      const dropPly = plyRef.current
-      const dropGen = ++retryGenRef.current
-
       void (async () => {
         try {
           const result = await retryEngine.evaluate(free.fen, { signal: controller.signal })
-          if (plyRef.current !== dropPly || retryGenRef.current !== dropGen) return
-          const evalAfter = toWhitePov(result.score, free.stm)
-          setFreeEval(evalAfter)
-          setFreeEvalPending(false)
-          if (scoredRetry) scoreRetry(evalAfter)
+          dispatch({
+            type: 'setNodeEval',
+            departPly,
+            path,
+            eval: toWhitePov(result.score, free.stm),
+            evalPending: false,
+          })
         } catch {
-          // Aborted or engine error: clear the pending state only if still current.
-          if (plyRef.current === dropPly && retryGenRef.current === dropGen) {
-            setFreeEvalPending(false)
-          }
+          dispatch({ type: 'setNodeEval', departPly, path, evalPending: false })
         } finally {
           if (freeEvalAbortRef.current === controller) freeEvalAbortRef.current = null
         }
       })()
-
       return true
     },
-    [retryActive, ply, game.moves, analysis.positions, retryEngine, abortFreeEval],
+    [previewFen, retryActive, ply, cursor, game.moves, analysis.positions, retryEngine, abortFreeEval],
   )
 
   const { headers } = game
-  const status = current
+  const mainStatus = current
     ? `${current.moveNumber}${current.color === 'w' ? '.' : '...'} ${current.san}`
     : 'Start position'
+  // On a branch node, the status names the branch move instead of the main-line move.
+  const status = branchNode
+    ? `Branch: ${branchNode.moveNumber}${branchNode.color === 'w' ? '.' : '…'} ${branchNode.san}`
+    : mainStatus
 
-  // Eval shown beside the board. While exploring a free move, show its fresh
-  // eval (or the EvalBar's pending state until it resolves); otherwise show the
+  // Eval shown beside the board. Priority mirrors `boardPosition`: a coach/retry
+  // preview's fresh eval, then the active branch node's live eval, then the
   // recorded eval for the current ply.
   const recordedEval = analysis.positions[ply]?.eval
   const evalForBar = previewFen
     ? freeEvalPending
       ? undefined
       : freeEval ?? recordedEval
-    : recordedEval
+    : branchNode
+      ? branchNode.evalPending
+        ? undefined
+        : branchNode.eval ?? recordedEval
+      : recordedEval
 
   return (
     <section className="viewer" aria-label="Game viewer">
@@ -462,6 +522,9 @@ export default function GameViewer({ game }: GameViewerProps) {
             onSelect={selectPly}
             classes={classes}
             timeFlags={timeFlags}
+            branches={branches}
+            cursor={cursor}
+            onSelectNode={selectNode}
           />
         ) : (
           <p className="muted">No moves.</p>
